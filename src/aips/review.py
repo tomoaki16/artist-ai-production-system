@@ -21,6 +21,64 @@ ROLE_LABELS = {
     "unknown": "未設定",
 }
 
+HARMONIC_ROLE_LABELS = {
+    "root": ("ルート", "コードの土台"),
+    "third": ("3度", "メジャー／マイナーを決める音"),
+    "fifth": ("5度", "コードを安定させる音"),
+    "diminished_fifth": ("減5度", "強い緊張感を作る音"),
+    "minor_seventh": ("短7度", "7thの響きを作る音"),
+    "major_seventh": ("長7度", "maj7の響きを作る音"),
+    "non_chord_tone": ("コード外音", "経過音や意図的な外しの候補"),
+    "unknown": ("未判定", "コード情報が必要"),
+}
+
+
+def _analysis_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    transport = payload.get("project", {}).get("transport", {})
+    beats_per_bar = transport.get("beats_per_bar") or 4.0
+    rows = []
+    for track in payload.get("project", {}).get("tracks", []):
+        if track.get("role", track.get("inferred_role")) != "bass":
+            continue
+        for analysis in track.get("audio_analysis", []):
+            for event in analysis.get("features", {}).get("note_events", []):
+                beat = float(event.get("song_time_beats", 0.0))
+                bar = int((beat + 0.1) // beats_per_bar) + 1
+                role = event.get("harmonic_role", "unknown")
+                label, description = HARMONIC_ROLE_LABELS.get(role, HARMONIC_ROLE_LABELS["unknown"])
+                row = {
+                    "bar": bar, "chord": event.get("chord", "—"),
+                    "note": event.get("note", "—"), "role": label,
+                    "description": description, "confidence": float(event.get("confidence", 0.0)),
+                }
+                if rows and all(rows[-1][key] == row[key] for key in ("bar", "chord", "note", "role")):
+                    rows[-1]["confidence"] = max(rows[-1]["confidence"], row["confidence"])
+                else:
+                    rows.append(row)
+    return rows
+
+
+def render_analysis_review(payload: dict[str, Any]) -> str:
+    """Render detected bass notes as an Artist-readable musical timeline."""
+    rows = _analysis_rows(payload)
+    body = "".join(
+        f'''<article class="bar-row"><div class="bar"><span>BAR</span><b>{row["bar"]:02d}</b></div>
+        <div class="music"><span class="chord">{escape(str(row["chord"]))}</span><strong>{escape(str(row["note"]))}</strong></div>
+        <div class="meaning"><b>{escape(str(row["role"]))}</b><span>{escape(str(row["description"]))}</span></div>
+        <div class="confidence"><span>解析確度</span><b>{round(row["confidence"] * 100)}%</b></div></article>'''
+        for row in rows
+    ) or '<p class="empty">ベースの音高解析結果がありません。</p>'
+    bars = len({row["bar"] for row in rows})
+    raw = escape(json.dumps(payload, ensure_ascii=False, indent=2))
+    return f'''<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>曲を読む</title><style>
+:root{{--ink:#17181a;--sub:#70747b;--line:#e1e3e7;--paper:#fff;--accent:#5b4bdb;--soft:#f1efff}}
+*{{box-sizing:border-box}}body{{margin:0;background:#f5f5f7;color:var(--ink);font-family:system-ui,-apple-system,"Noto Sans JP",sans-serif}}main{{max-width:900px;margin:auto;padding:36px 20px 80px}}h1{{font-size:30px;margin:0 0 8px}}.lead{{color:var(--sub);margin:0 0 24px}}.summary{{display:flex;gap:10px;margin-bottom:18px}}.summary div{{background:var(--paper);border:1px solid var(--line);border-radius:13px;padding:13px 16px;min-width:130px}}.summary b{{display:block;font-size:22px}}.summary span,.bar span,.confidence span{{color:var(--sub);font-size:12px}}.bar-row{{display:grid;grid-template-columns:64px 160px 1fr 90px;align-items:center;gap:16px;background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin:9px 0}}.bar b{{display:block;font-size:20px}}.music{{display:flex;align-items:center;gap:10px}}.music strong{{font-size:22px}}.chord{{color:var(--accent);background:var(--soft);border-radius:8px;padding:6px 9px;font-weight:750;min-width:50px;text-align:center}}.meaning{{display:flex;flex-direction:column;gap:3px}}.meaning span{{color:var(--sub);font-size:13px}}.confidence{{text-align:right}}.confidence b{{display:block}}details{{margin-top:24px;background:white;border:1px solid var(--line);border-radius:14px;padding:14px}}pre{{white-space:pre-wrap;word-break:break-word;font-size:11px}}.empty{{padding:24px;background:white;border-radius:14px}}
+@media(max-width:650px){{main{{padding:24px 14px 60px}}.bar-row{{grid-template-columns:50px 1fr auto;gap:10px}}.meaning{{grid-column:2/-1}}.confidence{{grid-column:3;grid-row:1;text-align:right}}}}
+</style></head><body><main><h1>曲を読む</h1><p class="lead">録音されたベースが、各コードの中でどんな役割をしているかを表示しています。</p>
+<section class="summary"><div><b>{bars}</b><span>解析済み小節</span></div><div><b>{len(rows)}</b><span>検出ノート</span></div></section>
+<section>{body}</section><details><summary>解析データの詳細</summary><pre>{raw}</pre></details></main></body></html>'''
+
 
 def render_material_review(context: dict[str, Any]) -> str:
     """Render a portable HTML screen that exports Artist-confirmed decisions."""
