@@ -5,7 +5,7 @@ from zipfile import ZipFile
 
 from aips.dawproject import parse_dawproject
 from aips.decisions import prepare_ai_payload
-from aips.review import render_material_review
+from aips.review import render_ai_payload_preview, render_material_review
 
 
 PROJECT_XML = """<?xml version="1.0" encoding="UTF-8"?>
@@ -116,6 +116,10 @@ class DawprojectAdapterTest(unittest.TestCase):
         self.assertEqual(payload["artist_authority"]["editable_track_ids"], ["midi"])
         self.assertEqual(len(payload["project"]["tracks"]), 1)
         self.assertEqual(payload["excluded_from_ai"][0]["name"], "Bass")
+        preview = render_ai_payload_preview(payload)
+        self.assertIn("AIへ渡す内容を確認", preview)
+        self.assertIn("変更可能", preview)
+        self.assertIn("AIへ送らないトラック：Bass", preview)
 
 
 if __name__ == "__main__":
