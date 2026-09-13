@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .dawproject import DawprojectError, parse_dawproject
 from .decisions import load_decisions, prepare_ai_payload
-from .review import render_material_review
+from .review import render_ai_payload_preview, render_material_review
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -36,6 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_parser.add_argument("input", type=Path)
     prepare_parser.add_argument("--decisions", type=Path, required=True)
     prepare_parser.add_argument("--output", "-o", type=Path, required=True)
+    prepare_parser.add_argument("--preview", type=Path)
     prepare_parser.add_argument("--start-bar", type=int)
     prepare_parser.add_argument("--bars", type=int)
     prepare_parser.add_argument("--harmony", type=Path)
@@ -63,6 +64,8 @@ def main() -> int:
         args.output.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
+        if args.preview:
+            args.preview.write_text(render_ai_payload_preview(payload), encoding="utf-8")
         return 0
 
     rendered = json.dumps(context, ensure_ascii=False, indent=2)
