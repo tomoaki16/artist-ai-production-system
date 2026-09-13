@@ -4,6 +4,7 @@ import unittest
 from zipfile import ZipFile
 
 from aips.dawproject import parse_dawproject
+from aips.review import render_material_review
 
 
 PROJECT_XML = """<?xml version="1.0" encoding="UTF-8"?>
@@ -81,6 +82,21 @@ class DawprojectAdapterTest(unittest.TestCase):
         self.assertEqual(len(context["tracks"][0]["notes"]), 1)
         self.assertEqual(context["tracks"][0]["notes"][0]["key"], 38)
         self.assertEqual(context["harmony"]["events"][0]["symbol"], "Em")
+
+    def test_renders_artist_review_controls(self) -> None:
+        with TemporaryDirectory() as directory:
+            package = Path(directory) / "song.dawproject"
+            with ZipFile(package, "w") as archive:
+                archive.writestr("project.xml", PROJECT_XML)
+                archive.writestr("audio/bass.wav", b"test")
+            html = render_material_review(parse_dawproject(package))
+
+        self.assertIn("AIに渡す素材を確認", html)
+        self.assertIn("Drums", html)
+        self.assertIn("使う", html)
+        self.assertIn("参照", html)
+        self.assertIn("無視", html)
+        self.assertIn("artist-decisions.json", html)
 
 
 if __name__ == "__main__":
