@@ -132,13 +132,21 @@ class DawprojectAdapterTest(unittest.TestCase):
             wav.setnchannels(1)
             wav.setsampwidth(2)
             wav.setframerate(8000)
-            samples = [int(12000 * math.sin(2 * math.pi * 110 * i / 8000)) for i in range(8000)]
+            frequencies = [82.4069, 103.826, 110.0, 123.471]
+            samples = []
+            for frequency in frequencies:
+                samples.extend(
+                    int(12000 * math.sin(2 * math.pi * frequency * i / 8000))
+                    for i in range(8000)
+                )
             wav.writeframes(b"".join(struct.pack("<h", sample) for sample in samples))
         analysis = analyze_pcm_wav(buffer.getvalue(), pitch_mode="monophonic")
 
         self.assertEqual(analysis["sample_rate"], 8000)
         self.assertTrue(analysis["pitch_candidates"])
-        self.assertAlmostEqual(analysis["pitch_candidates"][0]["midi"], 45, delta=1)
+        detected = {event["midi"] for event in analysis["note_events"]}
+        self.assertTrue({40, 44, 45, 47}.issubset(detected))
+        self.assertEqual(analysis["note_events"][0]["engine"], "librosa.pyin")
 
 
 if __name__ == "__main__":
