@@ -33,51 +33,86 @@ HARMONIC_ROLE_LABELS = {
 }
 
 
+def _track_note_events(payload: dict[str, Any], role: str) -> list[dict[str, Any]]:
+    events = []
+    for track in payload.get("project", {}).get("tracks", []):
+        if track.get("role", track.get("inferred_role")) == role:
+            for analysis in track.get("audio_analysis", []):
+                events.extend(analysis.get("features", {}).get("note_events", []))
+    return events
+
+
+def _notes_for_bar(events: list[dict[str, Any]], bar: int, beats_per_bar: float,
+                   *, polyphonic: bool = False) -> list[dict[str, Any]]:
+    grouped: dict[int, dict[str, Any]] = {}
+    for event in events:
+        beat = float(event.get("song_time_beats", 0.0))
+        if int((beat + 0.1) // beats_per_bar) + 1 != bar:
+            continue
+        midi = int(event.get("midi", -1))
+        item = grouped.setdefault(midi, {
+            "midi": midi, "note": event.get("note", "—"), "duration": 0.0,
+            "confidence": 0.0, "role": event.get("harmonic_role", "unknown"),
+        })
+        item["duration"] += float(event.get("duration_seconds", 0.0))
+        item["confidence"] = max(item["confidence"], float(event.get("confidence", 0.0)))
+    notes = list(grouped.values())
+    if polyphonic:
+        notes = [note for note in notes if note["duration"] >= 0.5 and note["confidence"] >= 0.3]
+    return sorted(notes, key=lambda note: note["midi"])
+
+
 def _analysis_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
     transport = payload.get("project", {}).get("transport", {})
     beats_per_bar = transport.get("beats_per_bar") or 4.0
+    harmony = payload.get("project", {}).get("harmony", {}).get("events", [])
+    bass_events = _track_note_events(payload, "bass")
+    guitar_events = _track_note_events(payload, "guitar")
+    bars = {int(event["time_beats"] // beats_per_bar) + 1 for event in harmony}
+    bars.update(int((float(event.get("song_time_beats", 0)) + 0.1) // beats_per_bar) + 1
+                for event in bass_events + guitar_events)
     rows = []
-    for track in payload.get("project", {}).get("tracks", []):
-        if track.get("role", track.get("inferred_role")) != "bass":
-            continue
-        for analysis in track.get("audio_analysis", []):
-            for event in analysis.get("features", {}).get("note_events", []):
-                beat = float(event.get("song_time_beats", 0.0))
-                bar = int((beat + 0.1) // beats_per_bar) + 1
-                role = event.get("harmonic_role", "unknown")
-                label, description = HARMONIC_ROLE_LABELS.get(role, HARMONIC_ROLE_LABELS["unknown"])
-                row = {
-                    "bar": bar, "chord": event.get("chord", "—"),
-                    "note": event.get("note", "—"), "role": label,
-                    "description": description, "confidence": float(event.get("confidence", 0.0)),
-                }
-                if rows and all(rows[-1][key] == row[key] for key in ("bar", "chord", "note", "role")):
-                    rows[-1]["confidence"] = max(rows[-1]["confidence"], row["confidence"])
-                else:
-                    rows.append(row)
+    for bar in sorted(bars):
+        beat = (bar - 1) * beats_per_bar
+        chord = next((event["symbol"] for event in harmony
+                      if event["time_beats"] <= beat < event["time_beats"] + event["duration_beats"]), "—")
+        rows.append({"bar": bar, "chord": chord,
+                     "bass": _notes_for_bar(bass_events, bar, beats_per_bar),
+                     "guitar": _notes_for_bar(guitar_events, bar, beats_per_bar, polyphonic=True)})
     return rows
 
 
 def render_analysis_review(payload: dict[str, Any]) -> str:
-    """Render detected bass notes as an Artist-readable musical timeline."""
+    """Render harmony, bass and guitar as an Artist-controlled timeline."""
     rows = _analysis_rows(payload)
-    body = "".join(
-        f'''<article class="bar-row"><div class="bar"><span>BAR</span><b>{row["bar"]:02d}</b></div>
-        <div class="music"><span class="chord">{escape(str(row["chord"]))}</span><strong>{escape(str(row["note"]))}</strong></div>
-        <div class="meaning"><b>{escape(str(row["role"]))}</b><span>{escape(str(row["description"]))}</span></div>
-        <div class="confidence"><span>解析確度</span><b>{round(row["confidence"] * 100)}%</b></div></article>'''
-        for row in rows
-    ) or '<p class="empty">ベースの音高解析結果がありません。</p>'
-    bars = len({row["bar"] for row in rows})
+
+    def cell(kind: str, title: str, value: str, detail: str = "") -> str:
+        return f'''<section class="part" data-part="{kind}"><span class="part-title">{title}</span><strong>{escape(value)}</strong>
+        {f'<small>{escape(detail)}</small>' if detail else ''}<div class="choices"><button type="button" class="active" data-value="protect">固定</button><button type="button" data-value="open">提案可</button></div></section>'''
+
+    cards = []
+    for row in rows:
+        bass_names = " / ".join(note["note"] for note in row["bass"]) or "未検出"
+        bass_roles = []
+        for note in row["bass"]:
+            label, description = HARMONIC_ROLE_LABELS.get(
+                note["role"], HARMONIC_ROLE_LABELS["unknown"]
+            )
+            meaning = f"{label}：{description}"
+            if meaning not in bass_roles:
+                bass_roles.append(meaning)
+        guitar_names = " · ".join(note["note"] for note in row["guitar"]) or "未検出"
+        cards.append(f'''<article class="bar-row" data-bar="{row["bar"]}"><div class="bar"><span>BAR</span><b>{row["bar"]:02d}</b></div>
+        {cell("harmony", "コード", str(row["chord"]))}{cell("bass", "ベース", bass_names, "・".join(bass_roles))}
+        {cell("guitar", "ギター", guitar_names, "安定して検出した音")}</article>''')
+    body = "".join(cards) or '<p class="empty">解析結果がありません。</p>'
+    row_data = json.dumps(rows, ensure_ascii=False).replace("</", "<\\/")
     raw = escape(json.dumps(payload, ensure_ascii=False, indent=2))
-    return f'''<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>曲を読む</title><style>
-:root{{--ink:#17181a;--sub:#70747b;--line:#e1e3e7;--paper:#fff;--accent:#5b4bdb;--soft:#f1efff}}
-*{{box-sizing:border-box}}body{{margin:0;background:#f5f5f7;color:var(--ink);font-family:system-ui,-apple-system,"Noto Sans JP",sans-serif}}main{{max-width:900px;margin:auto;padding:36px 20px 80px}}h1{{font-size:30px;margin:0 0 8px}}.lead{{color:var(--sub);margin:0 0 24px}}.summary{{display:flex;gap:10px;margin-bottom:18px}}.summary div{{background:var(--paper);border:1px solid var(--line);border-radius:13px;padding:13px 16px;min-width:130px}}.summary b{{display:block;font-size:22px}}.summary span,.bar span,.confidence span{{color:var(--sub);font-size:12px}}.bar-row{{display:grid;grid-template-columns:64px 160px 1fr 90px;align-items:center;gap:16px;background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin:9px 0}}.bar b{{display:block;font-size:20px}}.music{{display:flex;align-items:center;gap:10px}}.music strong{{font-size:22px}}.chord{{color:var(--accent);background:var(--soft);border-radius:8px;padding:6px 9px;font-weight:750;min-width:50px;text-align:center}}.meaning{{display:flex;flex-direction:column;gap:3px}}.meaning span{{color:var(--sub);font-size:13px}}.confidence{{text-align:right}}.confidence b{{display:block}}details{{margin-top:24px;background:white;border:1px solid var(--line);border-radius:14px;padding:14px}}pre{{white-space:pre-wrap;word-break:break-word;font-size:11px}}.empty{{padding:24px;background:white;border-radius:14px}}
-@media(max-width:650px){{main{{padding:24px 14px 60px}}.bar-row{{grid-template-columns:50px 1fr auto;gap:10px}}.meaning{{grid-column:2/-1}}.confidence{{grid-column:3;grid-row:1;text-align:right}}}}
-</style></head><body><main><h1>曲を読む</h1><p class="lead">録音されたベースが、各コードの中でどんな役割をしているかを表示しています。</p>
-<section class="summary"><div><b>{bars}</b><span>解析済み小節</span></div><div><b>{len(rows)}</b><span>検出ノート</span></div></section>
-<section>{body}</section><details><summary>解析データの詳細</summary><pre>{raw}</pre></details></main></body></html>'''
+    return f'''<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>曲を読む</title><style>
+:root{{--ink:#17181a;--sub:#70747b;--line:#e1e3e7;--paper:#fff;--accent:#5b4bdb;--soft:#f1efff}}*{{box-sizing:border-box}}body{{margin:0;background:#f5f5f7;color:var(--ink);font-family:system-ui,-apple-system,"Noto Sans JP",sans-serif}}main{{max-width:1080px;margin:auto;padding:34px 18px 110px}}h1{{font-size:30px;margin:0 0 8px}}.lead{{color:var(--sub);margin:0 0 22px}}.summary{{display:flex;gap:10px;margin-bottom:18px}}.summary div,.bar-row{{background:white;border:1px solid var(--line);border-radius:14px}}.summary div{{padding:12px 16px}}.summary b{{font-size:21px;display:block}}.summary span,.bar span,.part-title,small{{font-size:12px;color:var(--sub)}}.bar-row{{display:grid;grid-template-columns:58px .75fr 1fr 1.7fr;gap:10px;padding:12px;margin:9px 0}}.bar{{padding:7px}}.bar b{{display:block;font-size:20px}}.part{{border-left:1px solid var(--line);padding:7px 10px;min-width:0}}.part strong{{display:block;font-size:17px;margin:4px 0;overflow-wrap:anywhere}}.part small{{display:block;min-height:18px}}.choices{{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:10px}}.choices button{{border:1px solid var(--line);background:white;border-radius:7px;padding:6px;cursor:pointer;font-weight:650}}.choices button.active{{color:var(--accent);border-color:var(--accent);background:var(--soft)}}footer{{position:fixed;bottom:0;left:0;right:0;padding:13px 18px;background:rgba(255,255,255,.95);border-top:1px solid var(--line)}}.footer-inner{{max-width:1044px;margin:auto;display:flex;justify-content:space-between;align-items:center}}.primary{{border:0;border-radius:10px;background:var(--accent);color:white;padding:11px 17px;font-weight:700;cursor:pointer}}details{{margin-top:20px;background:white;border:1px solid var(--line);border-radius:14px;padding:14px}}pre{{white-space:pre-wrap;word-break:break-word;font-size:11px}}
+@media(max-width:720px){{.bar-row{{grid-template-columns:48px 1fr}}.part{{grid-column:2}}.bar{{grid-row:1/4}}.footer-inner{{gap:10px}}}}
+</style></head><body><main><h1>曲を読む</h1><p class="lead">コード進行と録音パートを小節ごとに確認し、AIが提案してよい範囲を決めます。</p><section class="summary"><div><b>{len(rows)}</b><span>解析済み小節</span></div><div><b>0</b><span id="open-count">提案可の項目</span></div></section><section>{body}</section><details><summary>解析データの詳細</summary><pre>{raw}</pre></details></main>
+<footer><div class="footer-inner"><span>初期値はすべて固定</span><button id="download" class="primary">この内容で決定</button></div></footer><script>const rows={row_data};document.querySelectorAll('.choices button').forEach(button=>button.onclick=()=>{{button.parentElement.querySelectorAll('button').forEach(x=>x.classList.remove('active'));button.classList.add('active');document.querySelector('#open-count').previousElementSibling.textContent=document.querySelectorAll('[data-value="open"].active').length;}});document.querySelector('#download').onclick=()=>{{const decisions=[...document.querySelectorAll('.bar-row')].map(card=>({{bar:Number(card.dataset.bar),parts:Object.fromEntries([...card.querySelectorAll('.part')].map(part=>[part.dataset.part,part.querySelector('.active').dataset.value]))}}));const blob=new Blob([JSON.stringify({{schema_version:'0.1',bar_decisions:decisions}},null,2)],{{type:'application/json'}});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='artist-bar-decisions.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}};</script></body></html>'''
 
 
 def render_material_review(context: dict[str, Any]) -> str:
