@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .dawproject import DawprojectError, parse_dawproject
 from .decisions import load_decisions, prepare_ai_payload
+from .audio import add_local_audio_analysis, load_audio_settings
 from .review import render_ai_payload_preview, render_material_review
 
 
@@ -40,6 +41,9 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_parser.add_argument("--start-bar", type=int)
     prepare_parser.add_argument("--bars", type=int)
     prepare_parser.add_argument("--harmony", type=Path)
+    prepare_parser.add_argument(
+        "--audio-settings", type=Path, help="run authorized local WAV analysis"
+    )
     return parser
 
 
@@ -61,6 +65,10 @@ def main() -> int:
 
     if args.command == "prepare":
         payload = prepare_ai_payload(context, load_decisions(args.decisions))
+        if args.audio_settings:
+            payload = add_local_audio_analysis(
+                args.input, payload, load_audio_settings(args.audio_settings)
+            )
         args.output.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
