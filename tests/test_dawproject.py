@@ -10,7 +10,7 @@ import wave
 from aips.dawproject import parse_dawproject
 from aips.decisions import prepare_ai_payload
 from aips.review import render_ai_payload_preview, render_material_review
-from aips.audio import add_local_audio_analysis, analyze_pcm_wav
+from aips.audio import _chord_tone_role, add_local_audio_analysis, analyze_pcm_wav
 
 
 PROJECT_XML = """<?xml version="1.0" encoding="UTF-8"?>
@@ -147,6 +147,33 @@ class DawprojectAdapterTest(unittest.TestCase):
         detected = {event["midi"] for event in analysis["note_events"]}
         self.assertTrue({40, 44, 45, 47}.issubset(detected))
         self.assertEqual(analysis["note_events"][0]["engine"], "librosa.pyin")
+
+    def test_maps_warped_audio_clip_to_source_seconds(self) -> None:
+        xml = PROJECT_XML.replace(
+            '<Audio sampleRate="44100" channels="1" duration="2.0">',
+            '<Warps contentTimeUnit="seconds"><Audio sampleRate="44100" channels="1" duration="20.0">'
+        ).replace(
+            '<File path="audio/bass.wav"/>\n    </Audio>',
+            '<File path="audio/bass.wav"/></Audio><Warp time="0" contentTime="0"/>'
+            '<Warp time="20" contentTime="10"/></Warps>'
+        ).replace('name="take" time="8" duration="4" playStart="0"',
+                  'name="take" time="8" duration="4" playStart="12"')
+        with TemporaryDirectory() as directory:
+            package = Path(directory) / "song.dawproject"
+            with ZipFile(package, "w") as archive:
+                archive.writestr("project.xml", xml)
+                archive.writestr("audio/bass.wav", b"test")
+            context = parse_dawproject(package)
+        clip = context["tracks"][1]["clips"][0]
+        self.assertEqual(clip["audio_offset_seconds"], 6.0)
+        self.assertEqual(clip["audio_duration_seconds"], 2.0)
+
+    def test_labels_harmonic_roles(self) -> None:
+        self.assertEqual(_chord_tone_role(40, "E"), "root")
+        self.assertEqual(_chord_tone_role(44, "E"), "third")
+        self.assertEqual(_chord_tone_role(47, "E"), "fifth")
+        self.assertEqual(_chord_tone_role(48, "Am7"), "third")
+        self.assertEqual(_chord_tone_role(47, "C#m7"), "minor_seventh")
 
 
 if __name__ == "__main__":
