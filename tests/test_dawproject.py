@@ -9,7 +9,7 @@ import wave
 
 from aips.dawproject import parse_dawproject
 from aips.decisions import prepare_ai_payload
-from aips.review import render_ai_payload_preview, render_material_review
+from aips.review import render_ai_payload_preview, render_analysis_review, render_material_review
 from aips.audio import _chord_tone_role, add_local_audio_analysis, analyze_pcm_wav
 
 
@@ -174,6 +174,19 @@ class DawprojectAdapterTest(unittest.TestCase):
         self.assertEqual(_chord_tone_role(47, "E"), "fifth")
         self.assertEqual(_chord_tone_role(48, "Am7"), "third")
         self.assertEqual(_chord_tone_role(47, "C#m7"), "minor_seventh")
+
+    def test_renders_artist_readable_bass_analysis(self) -> None:
+        payload = {"project": {"transport": {"beats_per_bar": 4}, "tracks": [{
+            "role": "bass", "audio_analysis": [{"features": {"note_events": [{
+                "song_time_beats": 0.02, "note": "E2", "chord": "E",
+                "harmonic_role": "root", "confidence": 0.83,
+            }]}}]
+        }]}}
+        html = render_analysis_review(payload)
+        self.assertIn("曲を読む", html)
+        self.assertIn("E2", html)
+        self.assertIn("ルート", html)
+        self.assertIn("コードの土台", html)
 
 
 if __name__ == "__main__":
