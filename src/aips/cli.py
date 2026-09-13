@@ -10,7 +10,8 @@ from .dawproject import DawprojectError, parse_dawproject
 from .decisions import (load_confirmed_analysis, load_decisions, prepare_ai_payload,
                         prepare_producer_request)
 from .audio import add_local_audio_analysis, load_audio_settings
-from .review import render_ai_payload_preview, render_analysis_review, render_material_review
+from .review import (render_ai_payload_preview, render_analysis_review,
+                     render_material_review, render_proposal_comparison)
 from .providers import validate_producer_response
 from .connections import call_producer, load_connection_config
 from .midi import export_proposal_midi
@@ -78,6 +79,12 @@ def build_parser() -> argparse.ArgumentParser:
     midi_parser.add_argument("input", type=Path, help="validated proposals JSON")
     midi_parser.add_argument("--output-dir", type=Path, required=True)
     midi_parser.add_argument("--tempo", type=float, default=90.0)
+    compare_parser = subparsers.add_parser(
+        "compare", help="render validated proposals as an Artist comparison screen"
+    )
+    compare_parser.add_argument("input", type=Path)
+    compare_parser.add_argument("--output", "-o", type=Path, required=True)
+    compare_parser.add_argument("--midi-directory", default="midi-takes")
     return parser
 
 
@@ -127,6 +134,15 @@ def main() -> int:
             export_proposal_midi(validated, args.output_dir, tempo_bpm=args.tempo)
         except (OSError, json.JSONDecodeError, DawprojectError) as exc:
             raise SystemExit(f"error: {exc}") from exc
+        return 0
+    if args.command == "compare":
+        try:
+            validated = json.loads(args.input.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise SystemExit(f"error: invalid validated proposals: {args.input}") from exc
+        args.output.write_text(
+            render_proposal_comparison(validated, args.midi_directory), encoding="utf-8"
+        )
         return 0
     try:
         context = parse_dawproject(
