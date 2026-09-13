@@ -14,15 +14,19 @@ DAW上で制作するArtistの感性・知識・経験を、AI Producer & Engine
 - 知識や指示の解像度が高いほど、出力も高度になる
 - 生成結果はDAW上で編集可能にする
 - 「誰でもプロっぽい曲」ではなく、Artistの能力を増幅する
+- Studio Oneで検証するが、コアは特定DAWへ依存させない
+- MIDIと録音オーディオが混在する制作を前提とする
+- 将来の一般配布を前提に設計する
 
 ## Current status
 
-Product definition / technical validation
+Product definition / portable architecture / technical validation
 
 ## Documentation
 
 - [製品憲法・意思決定ログ](docs/product-constitution.md)
+- [V0.1アーキテクチャ](docs/v0.1-architecture.md)
 
 ## Initial technical direction
 
-V0.1はStudio Oneから書き出したDAWprojectまたはStandard MIDI Fileを解析し、4〜8小節のDrums / Bass / Guitar / Keysに対して複数の編集可能なMIDI案を返すデスクトップ型プロトタイプとして検証します。
+V0.1はDAWproject、Standard MIDI File、Audio stems、コード情報を共通Music Contextへ変換し、4〜8小節の既存アンサンブルに対して複数の編集可能なMIDI案を返すクロスプラットフォームのデスクトップ型プロトタイプとして検証します。
