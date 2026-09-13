@@ -36,6 +36,11 @@ def create_provider_envelope(request: dict[str, Any]) -> dict[str, Any]:
                     "from_value": "confirmed value", "to_value": "proposed value",
                     "reason": "musical reason",
                 }],
+                "midi_events": [{
+                    "bar": "integer", "part": "bass | guitar | drums",
+                    "beat": "0-based number within bar", "duration_beats": "positive number",
+                    "pitch": "MIDI note 0-127", "velocity": "1-127",
+                }],
             }],
         },
     }
@@ -63,8 +68,10 @@ def validate_producer_response(request: dict[str, Any], response: dict[str, Any]
         title = str(proposal.get("title", "")).strip()
         rationale = str(proposal.get("rationale", "")).strip()
         changes = proposal.get("changes")
-        if not proposal_id or not title or not rationale or not isinstance(changes, list):
-            raise DawprojectError("each proposal needs id, title, rationale and changes")
+        midi_events = proposal.get("midi_events", [])
+        if (not proposal_id or not title or not rationale or not isinstance(changes, list)
+                or not isinstance(midi_events, list)):
+            raise DawprojectError("each proposal needs id, title, rationale, changes and optional midi_events")
         if proposal_id in proposal_ids:
             raise DawprojectError(f"duplicate proposal id: {proposal_id}")
         proposal_ids.add(proposal_id)
@@ -99,8 +106,26 @@ def validate_producer_response(request: dict[str, Any], response: dict[str, Any]
                 "bar": bar, "part": part, "from_value": from_value,
                 "to_value": to_value, "reason": reason,
             })
+        normalized_midi = []
+        for event in midi_events:
+            try:
+                bar, part = int(event["bar"]), str(event["part"])
+                beat, duration = float(event["beat"]), float(event["duration_beats"])
+                pitch, velocity = int(event["pitch"]), int(event["velocity"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise DawprojectError("each MIDI event is incomplete") from exc
+            if (bar, part) not in editable:
+                raise DawprojectError(
+                    f"proposal {proposal_id} writes MIDI to protected target: bar {bar} {part}"
+                )
+            if not 0 <= beat < 4 or duration <= 0 or not 0 <= pitch <= 127 or not 1 <= velocity <= 127:
+                raise DawprojectError(f"proposal {proposal_id} contains an invalid MIDI event")
+            normalized_midi.append({"bar": bar, "part": part, "beat": beat,
+                                    "duration_beats": duration, "pitch": pitch,
+                                    "velocity": velocity})
         normalized.append({
             "id": proposal_id, "title": title,
             "rationale": rationale, "changes": normalized_changes,
+            "midi_events": normalized_midi,
         })
     return {"schema_version": "0.1", "status": "validated", "proposals": normalized}
