@@ -210,7 +210,11 @@ class DawprojectAdapterTest(unittest.TestCase):
         self.assertIn("E3", html)
         self.assertIn("固定", html)
         self.assertIn("提案可", html)
-        self.assertIn("artist-bar-decisions.json", html)
+        self.assertIn("artist-confirmed-analysis.json", html)
+        self.assertIn('class="analysis-value"', html)
+        self.assertIn("original_value", html)
+        self.assertIn("corrected", html)
+        self.assertIn("この内容で確定", html)
 
 
 if __name__ == "__main__":
