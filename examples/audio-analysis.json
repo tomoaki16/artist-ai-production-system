@@ -1,0 +1,6 @@
+{
+  "audio_analysis": [
+    {"track_id": "id13", "enabled": true, "pitch_mode": "none"},
+    {"track_id": "id21", "enabled": true, "pitch_mode": "monophonic"}
+  ]
+}
