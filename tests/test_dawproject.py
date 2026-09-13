@@ -8,7 +8,7 @@ import struct
 import wave
 
 from aips.dawproject import parse_dawproject
-from aips.decisions import prepare_ai_payload
+from aips.decisions import prepare_ai_payload, prepare_producer_request
 from aips.review import render_ai_payload_preview, render_analysis_review, render_material_review
 from aips.audio import _chord_tone_role, add_local_audio_analysis, analyze_pcm_wav
 
@@ -215,6 +215,23 @@ class DawprojectAdapterTest(unittest.TestCase):
         self.assertIn("original_value", html)
         self.assertIn("corrected", html)
         self.assertIn("この内容で確定", html)
+
+    def test_builds_producer_request_from_artist_authority(self) -> None:
+        confirmed = {"bar_decisions": [{"bar": 13, "parts": {
+            "harmony": {"value": "F#m", "authority": "protect"},
+            "bass": {"value": "F#2", "authority": "protect"},
+            "guitar": {"value": "F#2 · C#3 · A3", "authority": "open"},
+        }}]}
+        request = prepare_producer_request(confirmed, {
+            "artist_intent": "サビ前の期待感を強めたい",
+            "constraints": ["音数は増やしすぎない"],
+            "proposal_count": 3,
+        })
+        boundary = request["authority_boundary"]
+        self.assertEqual(len(boundary["protected"]), 2)
+        self.assertEqual(boundary["editable"][0]["part"], "guitar")
+        self.assertEqual(request["artist"]["intent"], "サビ前の期待感を強めたい")
+        self.assertTrue(request["artist"]["owns_taste_and_final_decision"])
 
 
 if __name__ == "__main__":
