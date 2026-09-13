@@ -13,6 +13,7 @@ from .audio import add_local_audio_analysis, load_audio_settings
 from .review import render_ai_payload_preview, render_analysis_review, render_material_review
 from .providers import validate_producer_response
 from .connections import call_producer, load_connection_config
+from .midi import export_proposal_midi
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -71,6 +72,12 @@ def build_parser() -> argparse.ArgumentParser:
     call_parser.add_argument("input", type=Path, help="Producer Request JSON")
     call_parser.add_argument("--connection", type=Path, required=True)
     call_parser.add_argument("--output", "-o", type=Path, required=True)
+    midi_parser = subparsers.add_parser(
+        "export-midi", help="export validated proposals as Standard MIDI Files"
+    )
+    midi_parser.add_argument("input", type=Path, help="validated proposals JSON")
+    midi_parser.add_argument("--output-dir", type=Path, required=True)
+    midi_parser.add_argument("--tempo", type=float, default=90.0)
     return parser
 
 
@@ -113,6 +120,13 @@ def main() -> int:
         args.output.write_text(
             json.dumps(validated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
+        return 0
+    if args.command == "export-midi":
+        try:
+            validated = json.loads(args.input.read_text(encoding="utf-8"))
+            export_proposal_midi(validated, args.output_dir, tempo_bpm=args.tempo)
+        except (OSError, json.JSONDecodeError, DawprojectError) as exc:
+            raise SystemExit(f"error: {exc}") from exc
         return 0
     try:
         context = parse_dawproject(
