@@ -14,6 +14,7 @@ from aips.review import render_ai_payload_preview, render_analysis_review, rende
 from aips.audio import _chord_tone_role, add_local_audio_analysis, analyze_pcm_wav
 from aips.providers import create_provider_envelope, validate_producer_response
 from aips.connections import ConnectionConfig, build_http_request, extract_provider_response
+from aips.midi import export_proposal_midi
 from aips.dawproject import DawprojectError
 
 
@@ -291,6 +292,21 @@ class DawprojectAdapterTest(unittest.TestCase):
         gemini = {"candidates": [{"content": {"parts": [{"text": json.dumps(proposal)}]}}]}
         self.assertEqual(extract_provider_response("anthropic", anthropic), proposal)
         self.assertEqual(extract_provider_response("gemini", gemini), proposal)
+
+    def test_exports_validated_proposal_as_standard_midi(self) -> None:
+        validated = {"proposals": [{
+            "id": "idea-a", "title": "上行内声", "midi_events": [
+                {"bar": 13, "part": "guitar", "beat": 0, "duration_beats": 1,
+                 "pitch": 57, "velocity": 82},
+                {"bar": 14, "part": "guitar", "beat": 0, "duration_beats": 1,
+                 "pitch": 59, "velocity": 84},
+            ],
+        }]}
+        with TemporaryDirectory() as directory:
+            paths = export_proposal_midi(validated, directory, tempo_bpm=90)
+            data = paths[0].read_bytes()
+        self.assertEqual(data[:4], b"MThd")
+        self.assertIn(b"Place at bar 13", data)
 
 
 if __name__ == "__main__":
