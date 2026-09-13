@@ -7,7 +7,8 @@ import json
 from pathlib import Path
 
 from .dawproject import DawprojectError, parse_dawproject
-from .decisions import load_decisions, prepare_ai_payload
+from .decisions import (load_confirmed_analysis, load_decisions, prepare_ai_payload,
+                        prepare_producer_request)
 from .audio import add_local_audio_analysis, load_audio_settings
 from .review import render_ai_payload_preview, render_analysis_review, render_material_review
 
@@ -49,6 +50,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     analysis_parser.add_argument("input", type=Path, help="analyzed AI payload JSON")
     analysis_parser.add_argument("--output", "-o", type=Path, required=True)
+    request_parser = subparsers.add_parser(
+        "request", help="create a provider-neutral AI Producer request"
+    )
+    request_parser.add_argument("input", type=Path, help="Artist-confirmed analysis JSON")
+    request_parser.add_argument("--brief", type=Path, required=True,
+                                help="Artist intent and constraints JSON")
+    request_parser.add_argument("--output", "-o", type=Path, required=True)
     return parser
 
 
@@ -60,6 +68,16 @@ def main() -> int:
         except (OSError, json.JSONDecodeError) as exc:
             raise SystemExit(f"error: invalid analyzed payload: {args.input}") from exc
         args.output.write_text(render_analysis_review(payload), encoding="utf-8")
+        return 0
+    if args.command == "request":
+        try:
+            brief = json.loads(args.brief.read_text(encoding="utf-8"))
+            request = prepare_producer_request(load_confirmed_analysis(args.input), brief)
+        except (OSError, json.JSONDecodeError, DawprojectError) as exc:
+            raise SystemExit(f"error: {exc}") from exc
+        args.output.write_text(
+            json.dumps(request, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
         return 0
     try:
         context = parse_dawproject(
