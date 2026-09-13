@@ -8,6 +8,7 @@ import math
 import json
 import wave
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Any
 from zipfile import ZipFile
 
@@ -28,7 +29,7 @@ def load_audio_settings(path: str | Path) -> dict[str, dict[str, Any]]:
     for item in items:
         track_id = str(item.get("track_id", ""))
         mode = item.get("pitch_mode", "none")
-        if not track_id or mode not in {"none", "monophonic"}:
+        if not track_id or mode not in {"none", "monophonic", "polyphonic"}:
             raise DawprojectError("audio setting needs track_id and valid pitch_mode")
         settings[track_id] = item
     return settings
@@ -114,6 +115,37 @@ def _pyin_note_events(signal: np.ndarray, rate: int) -> tuple[list[dict[str, Any
     return events, [round(float(x * hop / rate), 4) for x in onset_frames]
 
 
+def _basic_pitch_note_events(data: bytes) -> list[dict[str, Any]]:
+    """Transcribe polyphonic audio through the optional Basic Pitch adapter."""
+    try:
+        from basic_pitch.inference import predict
+    except ImportError as exc:
+        raise DawprojectError(
+            "polyphonic analysis requires the isolated Basic Pitch worker"
+        ) from exc
+    with NamedTemporaryFile(suffix=".wav") as audio_file:
+        audio_file.write(data)
+        audio_file.flush()
+        _, _, notes = predict(
+            audio_file.name, onset_threshold=0.5, frame_threshold=0.3,
+            minimum_note_length=100.0, minimum_frequency=70.0,
+            maximum_frequency=1400.0, midi_tempo=120,
+        )
+    events = []
+    for start, end, midi, confidence, _ in notes:
+        midi = int(midi)
+        _, note_name = _midi_note(440.0 * 2 ** ((midi - 69) / 12))
+        events.append({
+            "start_seconds": round(float(start), 4),
+            "end_seconds": round(float(end), 4),
+            "duration_seconds": round(float(end - start), 4),
+            "midi": midi, "note": note_name,
+            "confidence": round(float(confidence), 3),
+            "engine": "spotify.basic_pitch.onnx",
+        })
+    return events
+
+
 def analyze_pcm_wav(data: bytes, *, pitch_mode: str = "none") -> dict[str, Any]:
     """Extract conservative, provider-independent features from a PCM WAV."""
     try:
@@ -157,6 +189,8 @@ def analyze_pcm_wav(data: bytes, *, pitch_mode: str = "none") -> dict[str, Any]:
     library_onsets = None
     if pitch_mode == "monophonic":
         note_events, library_onsets = _pyin_note_events(signal, rate)
+    elif pitch_mode == "polyphonic":
+        note_events = _basic_pitch_note_events(data)
 
     pitch_candidates = []
     if note_events:
