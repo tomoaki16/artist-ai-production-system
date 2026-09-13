@@ -17,13 +17,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     inspect_parser.add_argument("input", type=Path)
     inspect_parser.add_argument("--output", "-o", type=Path)
+    inspect_parser.add_argument("--start-bar", type=int)
+    inspect_parser.add_argument("--bars", type=int)
+    inspect_parser.add_argument("--harmony", type=Path, help="manual harmony JSON")
     return parser
 
 
 def main() -> int:
     args = build_parser().parse_args()
     try:
-        context = parse_dawproject(args.input)
+        context = parse_dawproject(
+            args.input,
+            start_bar=args.start_bar,
+            bars=args.bars,
+            harmony_path=args.harmony,
+        )
     except DawprojectError as exc:
         raise SystemExit(f"error: {exc}") from exc
 
