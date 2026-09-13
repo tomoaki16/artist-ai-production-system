@@ -9,7 +9,7 @@ from pathlib import Path
 from .dawproject import DawprojectError, parse_dawproject
 from .decisions import load_decisions, prepare_ai_payload
 from .audio import add_local_audio_analysis, load_audio_settings
-from .review import render_ai_payload_preview, render_material_review
+from .review import render_ai_payload_preview, render_analysis_review, render_material_review
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -44,11 +44,23 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_parser.add_argument(
         "--audio-settings", type=Path, help="run authorized local WAV analysis"
     )
+    analysis_parser = subparsers.add_parser(
+        "analysis", help="render analyzed Music Context as an Artist-readable HTML timeline"
+    )
+    analysis_parser.add_argument("input", type=Path, help="analyzed AI payload JSON")
+    analysis_parser.add_argument("--output", "-o", type=Path, required=True)
     return parser
 
 
 def main() -> int:
     args = build_parser().parse_args()
+    if args.command == "analysis":
+        try:
+            payload = json.loads(args.input.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise SystemExit(f"error: invalid analyzed payload: {args.input}") from exc
+        args.output.write_text(render_analysis_review(payload), encoding="utf-8")
+        return 0
     try:
         context = parse_dawproject(
             args.input,
