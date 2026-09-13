@@ -10,7 +10,8 @@ import wave
 
 from aips.dawproject import parse_dawproject
 from aips.decisions import prepare_ai_payload, prepare_producer_request
-from aips.review import render_ai_payload_preview, render_analysis_review, render_material_review
+from aips.review import (render_ai_payload_preview, render_analysis_review,
+                         render_material_review, render_proposal_comparison)
 from aips.audio import _chord_tone_role, add_local_audio_analysis, analyze_pcm_wav
 from aips.providers import create_provider_envelope, validate_producer_response
 from aips.connections import ConnectionConfig, build_http_request, extract_provider_response
@@ -307,6 +308,19 @@ class DawprojectAdapterTest(unittest.TestCase):
             data = paths[0].read_bytes()
         self.assertEqual(data[:4], b"MThd")
         self.assertIn(b"Place at bar 13", data)
+
+    def test_renders_proposal_comparison_with_midi_actions(self) -> None:
+        validated = {"proposals": [{
+            "id": "idea-a", "title": "上昇ボイシング",
+            "rationale": "トップノートを上げる",
+            "changes": [{"bar": 13, "part": "guitar", "from_value": "F#m",
+                         "to_value": "F#m/A", "reason": "上声の方向感"}],
+        }]}
+        html = render_proposal_comparison(validated)
+        self.assertIn("提案を比較", html)
+        self.assertIn("上昇ボイシング", html)
+        self.assertIn("midi-takes/idea-a.mid", html)
+        self.assertIn("この案を選ぶ", html)
 
 
 if __name__ == "__main__":
