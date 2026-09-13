@@ -210,11 +210,14 @@ class DawprojectAdapterTest(unittest.TestCase):
         self.assertIn("E3", html)
         self.assertIn("固定", html)
         self.assertIn("提案可", html)
-        self.assertIn("artist-confirmed-analysis.json", html)
+        self.assertIn("producer-request.json", html)
         self.assertIn('class="analysis-value"', html)
         self.assertIn("original_value", html)
         self.assertIn("corrected", html)
-        self.assertIn("この内容で確定", html)
+        self.assertIn("解析内容を確定して次へ", html)
+        self.assertIn("Producerに依頼する", html)
+        self.assertIn("artist-intent", html)
+        self.assertIn("artist-constraints", html)
 
     def test_builds_producer_request_from_artist_authority(self) -> None:
         confirmed = {"bar_decisions": [{"bar": 13, "parts": {
