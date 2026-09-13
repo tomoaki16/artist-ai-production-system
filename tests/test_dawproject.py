@@ -22,10 +22,11 @@ PROJECT_XML = """<?xml version="1.0" encoding="UTF-8"?>
     </Track>
   </Structure>
   <Arrangement><Lanes>
-    <Lanes track="midi"><Clips><Clip><Notes>
+    <Lanes track="midi"><Clips><Clip name="beat" time="4" duration="4" playStart="1"><Notes>
       <Note time="0" duration="0.25" key="36" vel="0.8" channel="9"/>
+      <Note time="2" duration="0.25" key="38" vel="0.7" channel="9"/>
     </Notes></Clip></Clips></Lanes>
-    <Lanes track="audio"><Clips><Clip><Audio sampleRate="44100" channels="1" duration="2.0">
+    <Lanes track="audio"><Clips><Clip name="take" time="8" duration="4" playStart="0"><Audio sampleRate="44100" channels="1" duration="2.0">
       <File path="audio/bass.wav"/>
     </Audio></Clip></Clips></Lanes>
   </Lanes></Arrangement>
@@ -52,9 +53,34 @@ class DawprojectAdapterTest(unittest.TestCase):
         self.assertEqual(context["diagnostics"]["missing_audio_assets"], [])
         self.assertTrue(context["harmony"]["requires_fallback_input"])
         self.assertEqual(context["tracks"][0]["notes"][0]["key"], 36)
+        self.assertEqual(context["tracks"][0]["notes"][0]["time_beats"], 3)
+        self.assertEqual(context["tracks"][0]["notes"][0]["drum_voice"], "kick")
+        self.assertEqual(context["tracks"][0]["clip_count"], 1)
+        self.assertEqual(context["tracks"][0]["selection_status"], "playback")
+        self.assertEqual(context["tracks"][1]["selection_status"], "muted_candidate")
         self.assertEqual(
             context["tracks"][1]["audio_assets"][0]["path"], "audio/bass.wav"
         )
+
+    def test_selects_bars_and_merges_manual_harmony(self) -> None:
+        with TemporaryDirectory() as directory:
+            package = Path(directory) / "song.dawproject"
+            harmony = Path(directory) / "harmony.json"
+            harmony.write_text(
+                '[{"time_beats": 4, "duration_beats": 4, "symbol": "Em"}]',
+                encoding="utf-8",
+            )
+            with ZipFile(package, "w") as archive:
+                archive.writestr("project.xml", PROJECT_XML)
+                archive.writestr("audio/bass.wav", b"test")
+            context = parse_dawproject(
+                package, start_bar=2, bars=1, harmony_path=harmony
+            )
+
+        self.assertEqual(context["selection"]["start_beats"], 4)
+        self.assertEqual(len(context["tracks"][0]["notes"]), 1)
+        self.assertEqual(context["tracks"][0]["notes"][0]["key"], 38)
+        self.assertEqual(context["harmony"]["events"][0]["symbol"], "Em")
 
 
 if __name__ == "__main__":
