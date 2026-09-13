@@ -11,6 +11,7 @@ from .decisions import (load_confirmed_analysis, load_decisions, prepare_ai_payl
                         prepare_producer_request)
 from .audio import add_local_audio_analysis, load_audio_settings
 from .review import render_ai_payload_preview, render_analysis_review, render_material_review
+from .providers import validate_producer_response
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -57,6 +58,12 @@ def build_parser() -> argparse.ArgumentParser:
     request_parser.add_argument("--brief", type=Path, required=True,
                                 help="Artist intent and constraints JSON")
     request_parser.add_argument("--output", "-o", type=Path, required=True)
+    validate_parser = subparsers.add_parser(
+        "validate-response", help="reject AI proposals outside the Artist boundary"
+    )
+    validate_parser.add_argument("request", type=Path)
+    validate_parser.add_argument("response", type=Path)
+    validate_parser.add_argument("--output", "-o", type=Path, required=True)
     return parser
 
 
@@ -77,6 +84,17 @@ def main() -> int:
             raise SystemExit(f"error: {exc}") from exc
         args.output.write_text(
             json.dumps(request, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        return 0
+    if args.command == "validate-response":
+        try:
+            request = json.loads(args.request.read_text(encoding="utf-8"))
+            response = json.loads(args.response.read_text(encoding="utf-8"))
+            validated = validate_producer_response(request, response)
+        except (OSError, json.JSONDecodeError, DawprojectError) as exc:
+            raise SystemExit(f"error: {exc}") from exc
+        args.output.write_text(
+            json.dumps(validated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
         return 0
     try:
