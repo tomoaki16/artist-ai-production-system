@@ -128,6 +128,30 @@ document.querySelector('#next').onclick=()=>{{if(!document.querySelector('#analy
 document.querySelector('#back').onclick=()=>{{document.querySelector('#brief-step').classList.add('hidden');document.querySelector('#analysis-step').classList.remove('hidden');document.querySelector('#back').classList.add('hidden');document.querySelector('#next').textContent='解析内容を確定して次へ';updateSummary();window.scrollTo(0,0);}};updateSummary();</script></body></html>'''
 
 
+def render_proposal_comparison(validated: dict[str, Any], midi_directory: str = "midi-takes") -> str:
+    """Render validated Producer proposals as an Artist comparison screen."""
+    cards = []
+    for index, proposal in enumerate(validated.get("proposals", [])):
+        rows = "".join(
+            f'''<tr><td>{int(change["bar"])}</td><td>{escape(str(change["part"]))}</td>
+            <td>{escape(str(change["from_value"]))}</td><td>{escape(str(change["to_value"]))}</td>
+            <td>{escape(str(change["reason"]))}</td></tr>'''
+            for change in proposal.get("changes", [])
+        )
+        safe_id = "".join(character for character in str(proposal["id"])
+                          if character.isalnum() or character in "-_") or "proposal"
+        cards.append(f'''<article class="proposal" data-id="{escape(str(proposal['id']), quote=True)}">
+        <div class="proposal-head"><span class="number">{chr(65 + index)}</span><div><h2>{escape(str(proposal['title']))}</h2><p>{escape(str(proposal['rationale']))}</p></div></div>
+        <table><thead><tr><th>小節</th><th>パート</th><th>現在</th><th>提案</th><th>狙い</th></tr></thead><tbody>{rows}</tbody></table>
+        <div class="proposal-actions"><a href="{escape(midi_directory, quote=True)}/{safe_id}.mid" download>MIDIを取得</a><button type="button" class="select">この案を選ぶ</button></div></article>''')
+    raw = escape(json.dumps(validated, ensure_ascii=False, indent=2))
+    return f'''<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>提案を比較</title><style>
+:root{{--ink:#17181a;--sub:#6f737a;--line:#e0e2e6;--accent:#5b4bdb;--soft:#f1efff}}*{{box-sizing:border-box}}body{{margin:0;background:#f5f5f7;color:var(--ink);font-family:system-ui,-apple-system,"Noto Sans JP",sans-serif}}main{{max-width:1050px;margin:auto;padding:36px 18px 90px}}h1{{font-size:30px;margin:0 0 8px}}.lead{{color:var(--sub);margin:0 0 24px}}.proposal{{background:white;border:1px solid var(--line);border-radius:16px;padding:19px;margin:14px 0}}.proposal.selected{{border:2px solid var(--accent);box-shadow:0 0 0 3px var(--soft)}}.proposal-head{{display:flex;gap:13px;align-items:flex-start}}.number{{display:grid;place-items:center;width:36px;height:36px;border-radius:50%;background:var(--soft);color:var(--accent);font-weight:800}}h2{{font-size:20px;margin:2px 0 4px}}.proposal-head p{{color:var(--sub);margin:0;line-height:1.55}}table{{width:100%;border-collapse:collapse;margin-top:16px;font-size:13px}}th,td{{text-align:left;border-top:1px solid var(--line);padding:10px 8px;vertical-align:top}}th{{color:var(--sub)}}.proposal-actions{{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}}a,.select{{border-radius:9px;padding:10px 14px;font:inherit;font-weight:700;text-decoration:none;cursor:pointer}}a{{color:var(--accent);border:1px solid var(--accent)}}.select{{color:white;background:var(--accent);border:0}}#decision{{position:sticky;bottom:14px;background:#17181a;color:white;border-radius:13px;padding:13px 16px;margin-top:20px;display:none}}details{{margin-top:22px;background:white;border:1px solid var(--line);border-radius:14px;padding:14px}}pre{{white-space:pre-wrap;word-break:break-word;font-size:11px}}@media(max-width:650px){{table{{display:block;overflow-x:auto}}.proposal-actions{{display:grid;grid-template-columns:1fr 1fr}}a,.select{{text-align:center}}}}
+</style></head><body><main><h1>Producerの提案を比較</h1><p class="lead">各案は別の音楽的手段で同じArtistの意図を狙っています。MIDIをStudio Oneの13小節目へ置いて聴き比べます。</p>{''.join(cards)}<div id="decision"></div><details><summary>検証済み提案データ</summary><pre>{raw}</pre></details></main><script>
+document.querySelectorAll('.select').forEach(button=>button.onclick=()=>{{document.querySelectorAll('.proposal').forEach(card=>card.classList.remove('selected'));const card=button.closest('.proposal');card.classList.add('selected');const box=document.querySelector('#decision');box.style.display='block';box.textContent=`選択中：${{card.querySelector('h2').textContent}}。MIDIをStudio Oneで確認し、最終的な採否を決めてください。`;}});
+</script></body></html>'''
+
+
 def render_material_review(context: dict[str, Any]) -> str:
     """Render a portable HTML screen that exports Artist-confirmed decisions."""
     rows = []
