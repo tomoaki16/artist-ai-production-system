@@ -185,6 +185,76 @@ def analyze_pcm_wav(data: bytes, *, pitch_mode: str = "none") -> dict[str, Any]:
     }
 
 
+def _trim_pcm_wav(data: bytes, offset_seconds: float, duration_seconds: float) -> bytes:
+    """Return a PCM WAV containing only the range used by a DAW clip."""
+    source = BytesIO(data)
+    try:
+        with wave.open(source, "rb") as wav:
+            params = wav.getparams()
+            start = min(wav.getnframes(), max(0, round(offset_seconds * wav.getframerate())))
+            length = max(0, round(duration_seconds * wav.getframerate()))
+            wav.setpos(start)
+            frames = wav.readframes(min(length, wav.getnframes() - start))
+    except (wave.Error, EOFError) as exc:
+        raise DawprojectError("audio asset is not a supported PCM WAV") from exc
+    output = BytesIO()
+    with wave.open(output, "wb") as wav:
+        wav.setparams(params)
+        wav.writeframes(frames)
+    return output.getvalue()
+
+
+_NOTE_CLASSES = {name: index for index, name in enumerate(
+    ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
+)} | {"DB": 1, "EB": 3, "GB": 6, "AB": 8, "BB": 10}
+
+
+def _chord_tone_role(midi: int, symbol: str) -> str:
+    normalized = symbol.strip().upper().replace("♭", "B").replace("♯", "#")
+    root_name = normalized[:2] if len(normalized) > 1 and normalized[1] in "#B" else normalized[:1]
+    root = _NOTE_CLASSES.get(root_name)
+    if root is None:
+        return "unknown"
+    interval = (midi - root) % 12
+    suffix = symbol[len(root_name):]
+    minor = suffix.startswith("m") and not suffix.lower().startswith("maj")
+    diminished = "DIM" in normalized or "°" in symbol
+    roles = {0: "root", 7: "fifth"}
+    roles[3 if minor else 4] = "third"
+    if diminished:
+        roles[3], roles[6] = "third", "diminished_fifth"
+    if "MAJ7" in normalized or "M7" in symbol:
+        roles[11] = "major_seventh"
+    elif "7" in normalized:
+        roles[10] = "minor_seventh"
+    return roles.get(interval, "non_chord_tone")
+
+
+def _annotate_harmony(events: list[dict[str, Any]], harmony: list[dict[str, Any]]) -> None:
+    for event in events:
+        beat = event.get("song_time_beats")
+        if beat is None:
+            continue
+        # A played attack may precede the grid by a few milliseconds. Treat it as
+        # belonging to the imminent chord without quantizing the recorded timing.
+        harmonic_start = beat + 0.1
+        harmonic_end = max(harmonic_start, event.get("song_end_time_beats", beat) - 0.1)
+        contexts = [item for item in harmony if
+                    item["time_beats"] < harmonic_end and
+                    item["time_beats"] + item["duration_beats"] > harmonic_start]
+        chord = next((item for item in contexts if
+                      item["time_beats"] <= harmonic_start <
+                      item["time_beats"] + item["duration_beats"]), None)
+        if chord:
+            event["chord"] = chord["symbol"]
+            event["harmonic_role"] = _chord_tone_role(event["midi"], chord["symbol"])
+        event["harmonic_contexts"] = [
+            {"chord": item["symbol"],
+             "role": _chord_tone_role(event["midi"], item["symbol"])}
+            for item in contexts
+        ]
+
+
 def add_local_audio_analysis(dawproject: str | Path, payload: dict[str, Any],
                              settings: dict[str, dict[str, Any]]) -> dict[str, Any]:
     """Analyze only Artist-authorized tracks/assets and attach derived features."""
@@ -196,15 +266,35 @@ def add_local_audio_analysis(dawproject: str | Path, payload: dict[str, Any],
                 continue
             pitch_mode = setting.get("pitch_mode", "none")
             analyses = []
-            for asset in track.get("audio_assets", []):
-                path = asset.get("path")
+            for clip in track.get("clips", []):
+                path = clip.get("asset_path")
                 if not path:
                     continue
                 try:
-                    analysis = analyze_pcm_wav(archive.read(path), pitch_mode=pitch_mode)
+                    data = archive.read(path)
                 except KeyError as exc:
                     raise DawprojectError(f"audio asset is missing: {path}") from exc
-                analyses.append({"asset_path": path, "source": "local_pcm_analysis",
+                offset = float(clip.get("audio_offset_seconds") or 0.0)
+                duration = clip.get("audio_duration_seconds")
+                if duration is not None:
+                    data = _trim_pcm_wav(data, offset, float(duration))
+                analysis = analyze_pcm_wav(data, pitch_mode=pitch_mode)
+                for event in analysis.get("note_events", []):
+                    event["song_time_beats"] = round(
+                        float(clip["time_beats"]) + event["start_seconds"] *
+                        float(result["project"]["transport"]["tempo_bpm"]) / 60.0, 4
+                    )
+                    event["song_end_time_beats"] = round(
+                        float(clip["time_beats"]) + event["end_seconds"] *
+                        float(result["project"]["transport"]["tempo_bpm"]) / 60.0, 4
+                    )
+                _annotate_harmony(
+                    analysis.get("note_events", []), result["project"]["harmony"].get("events", [])
+                )
+                analyses.append({"asset_path": path, "clip_name": clip.get("name"),
+                                 "clip_time_beats": clip.get("time_beats"),
+                                 "source_offset_seconds": round(offset, 6),
+                                 "source": "local_pcm_analysis",
                                  "features": analysis})
             if analyses:
                 track["audio_analysis"] = analyses
