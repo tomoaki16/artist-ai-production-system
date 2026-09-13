@@ -4,6 +4,7 @@ import unittest
 from zipfile import ZipFile
 from io import BytesIO
 import math
+import json
 import struct
 import wave
 
@@ -12,6 +13,7 @@ from aips.decisions import prepare_ai_payload, prepare_producer_request
 from aips.review import render_ai_payload_preview, render_analysis_review, render_material_review
 from aips.audio import _chord_tone_role, add_local_audio_analysis, analyze_pcm_wav
 from aips.providers import create_provider_envelope, validate_producer_response
+from aips.connections import ConnectionConfig, build_http_request, extract_provider_response
 from aips.dawproject import DawprojectError
 
 
@@ -266,6 +268,29 @@ class DawprojectAdapterTest(unittest.TestCase):
         }]}
         with self.assertRaises(DawprojectError):
             validate_producer_response(request, response)
+
+    def test_builds_secret_safe_provider_requests(self) -> None:
+        envelope = {"request": "music"}
+        anthropic = build_http_request(
+            ConnectionConfig("anthropic", "artist-model", "AIPS_TEST_KEY"),
+            envelope, {"AIPS_TEST_KEY": "secret"},
+        )
+        self.assertEqual(anthropic.full_url, "https://api.anthropic.com/v1/messages")
+        self.assertEqual(anthropic.headers["X-api-key"], "secret")
+        self.assertNotIn(b"secret", anthropic.data)
+        gemini = build_http_request(
+            ConnectionConfig("gemini", "artist-model", "AIPS_TEST_KEY"),
+            envelope, {"AIPS_TEST_KEY": "secret"},
+        )
+        self.assertIn(":generateContent", gemini.full_url)
+        self.assertEqual(gemini.headers["X-goog-api-key"], "secret")
+
+    def test_extracts_provider_json_without_trusting_it(self) -> None:
+        proposal = {"proposals": []}
+        anthropic = {"content": [{"type": "text", "text": json.dumps(proposal)}]}
+        gemini = {"candidates": [{"content": {"parts": [{"text": json.dumps(proposal)}]}}]}
+        self.assertEqual(extract_provider_response("anthropic", anthropic), proposal)
+        self.assertEqual(extract_provider_response("gemini", gemini), proposal)
 
 
 if __name__ == "__main__":
