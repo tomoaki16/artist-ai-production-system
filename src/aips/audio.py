@@ -57,6 +57,63 @@ def _midi_note(frequency: float) -> tuple[float, str]:
     return midi, f"{names[rounded % 12]}{rounded // 12 - 1}"
 
 
+def _pyin_note_events(signal: np.ndarray, rate: int) -> tuple[list[dict[str, Any]], list[float]]:
+    """Convert pYIN's smoothed monophonic F0 track to conservative note events."""
+    import librosa
+
+    hop = 256
+    f0, voiced, probability = librosa.pyin(
+        signal, fmin=30.0, fmax=500.0, sr=rate,
+        frame_length=4096, hop_length=hop, fill_na=np.nan,
+    )
+    onset_frames = librosa.onset.onset_detect(
+        y=signal, sr=rate, hop_length=hop, backtrack=True, units="frames"
+    )
+    pitch = librosa.hz_to_midi(f0)
+    quantized = np.rint(pitch)
+    boundaries = {0, len(f0), *(int(x) for x in onset_frames)}
+    valid = np.isfinite(quantized) & voiced & (probability >= 0.5)
+    previous = None
+    for index in range(2, len(quantized) - 2):
+        if not valid[index]:
+            if valid[index - 1]:
+                boundaries.add(index)
+            continue
+        note = int(quantized[index])
+        if previous is not None and note != previous:
+            neighborhood = quantized[index:index + 3]
+            if np.all(np.isfinite(neighborhood)) and np.all(neighborhood == note):
+                boundaries.add(index)
+        previous = note
+    points = sorted(boundaries)
+    events = []
+    for start, end in zip(points, points[1:]):
+        mask = valid[start:end]
+        if mask.sum() < 3:
+            continue
+        frequencies = f0[start:end][mask]
+        probs = probability[start:end][mask]
+        median_frequency = float(np.median(frequencies))
+        midi, note_name = _midi_note(median_frequency)
+        event = {
+            "start_seconds": round(start * hop / rate, 4),
+            "end_seconds": round(end * hop / rate, 4),
+            "duration_seconds": round((end - start) * hop / rate, 4),
+            "midi": round(midi), "note": note_name,
+            "frequency_hz": round(median_frequency, 2),
+            "confidence": round(float(np.median(probs)), 3),
+            "engine": "librosa.pyin",
+        }
+        if event["duration_seconds"] >= 0.06:
+            if events and events[-1]["midi"] == event["midi"] and event["start_seconds"] - events[-1]["end_seconds"] <= 0.08:
+                events[-1]["end_seconds"] = event["end_seconds"]
+                events[-1]["duration_seconds"] = round(events[-1]["end_seconds"] - events[-1]["start_seconds"], 4)
+                events[-1]["confidence"] = round((events[-1]["confidence"] + event["confidence"]) / 2, 3)
+            else:
+                events.append(event)
+    return events, [round(float(x * hop / rate), 4) for x in onset_frames]
+
+
 def analyze_pcm_wav(data: bytes, *, pitch_mode: str = "none") -> dict[str, Any]:
     """Extract conservative, provider-independent features from a PCM WAV."""
     try:
@@ -96,42 +153,22 @@ def analyze_pcm_wav(data: bytes, *, pitch_mode: str = "none") -> dict[str, Any]:
         freqs = np.fft.rfftfreq(frame_size, 1 / rate)
         centroid_values.append(float((freqs * spectrum).sum() / (spectrum.sum() + 1e-12)))
 
-    pitches = []
+    note_events = []
+    library_onsets = None
     if pitch_mode == "monophonic":
-        down = max(1, rate // 11025)
-        sampled = signal[::down]
-        sample_rate = rate / down
-        pitch_frame = 4096
-        active_starts = starts[active]
-        if len(active_starts) > 40:
-            active_starts = active_starts[np.linspace(0, len(active_starts) - 1, 40, dtype=int)]
-        for original_start in active_starts:
-            s = int(original_start / down)
-            chunk = sampled[s:s + pitch_frame]
-            if len(chunk) < pitch_frame:
-                continue
-            chunk = (chunk - chunk.mean()) * np.hanning(pitch_frame)
-            spectrum = np.fft.rfft(chunk, n=pitch_frame * 2)
-            corr = np.fft.irfft(spectrum * np.conj(spectrum))[:pitch_frame]
-            minimum, maximum = int(sample_rate / 400), int(sample_rate / 40)
-            lag = minimum + int(np.argmax(corr[minimum:maximum]))
-            clarity = float(corr[lag] / (corr[0] + 1e-12))
-            if clarity > 0.25:
-                frequency = sample_rate / lag
-                midi, note = _midi_note(frequency)
-                pitches.append((midi, frequency, note, clarity))
+        note_events, library_onsets = _pyin_note_events(signal, rate)
 
     pitch_candidates = []
-    if pitches:
-        rounded_notes = [round(p[0]) for p in pitches]
-        for midi_note in sorted(set(rounded_notes), key=lambda n: rounded_notes.count(n), reverse=True)[:5]:
-            group = [p for p in pitches if round(p[0]) == midi_note]
-            representative = min(group, key=lambda p: abs(p[0] - midi_note))
+    if note_events:
+        total_duration = sum(event["duration_seconds"] for event in note_events)
+        midi_notes = [event["midi"] for event in note_events]
+        for midi_note in sorted(set(midi_notes), key=lambda n: sum(e["duration_seconds"] for e in note_events if e["midi"] == n), reverse=True)[:5]:
+            group = [event for event in note_events if event["midi"] == midi_note]
             pitch_candidates.append({
-                "note": representative[2], "midi": midi_note,
-                "frequency_hz": round(float(np.median([p[1] for p in group])), 2),
-                "frame_share": round(len(group) / len(pitches), 3),
-                "confidence": round(float(np.median([p[3] for p in group])), 3),
+                "note": group[0]["note"], "midi": midi_note,
+                "frequency_hz": round(float(np.median([e["frequency_hz"] for e in group])), 2),
+                "duration_share": round(sum(e["duration_seconds"] for e in group) / total_duration, 3),
+                "confidence": round(float(np.median([e["confidence"] for e in group])), 3),
             })
     return {
         "duration_seconds": round(len(signal) / rate, 3),
@@ -139,9 +176,10 @@ def analyze_pcm_wav(data: bytes, *, pitch_mode: str = "none") -> dict[str, Any]:
         "channels": channels,
         "dynamics": {"median_dbfs": round(float(np.median(db[active])) if active.any() else -120.0, 2),
                      "peak_dbfs": round(20 * math.log10(float(np.max(np.abs(signal))) + 1e-12), 2)},
-        "onsets_seconds": [round(float(starts[i] / rate), 3) for i in onset_idx[:200]],
+        "onsets_seconds": library_onsets if library_onsets is not None else [round(float(starts[i] / rate), 3) for i in onset_idx[:200]],
         "spectral_centroid_hz": round(float(np.median(centroid_values)), 1) if centroid_values else None,
         "pitch_candidates": pitch_candidates,
+        "note_events": note_events,
         "pitch_mode": pitch_mode,
         "confidence": 0.8 if active.any() else 0.2,
     }
