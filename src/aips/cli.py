@@ -12,6 +12,7 @@ from .decisions import (load_confirmed_analysis, load_decisions, prepare_ai_payl
 from .audio import add_local_audio_analysis, load_audio_settings
 from .review import render_ai_payload_preview, render_analysis_review, render_material_review
 from .providers import validate_producer_response
+from .connections import call_producer, load_connection_config
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -64,6 +65,12 @@ def build_parser() -> argparse.ArgumentParser:
     validate_parser.add_argument("request", type=Path)
     validate_parser.add_argument("response", type=Path)
     validate_parser.add_argument("--output", "-o", type=Path, required=True)
+    call_parser = subparsers.add_parser(
+        "call", help="send a Producer Request through the user's AI connection"
+    )
+    call_parser.add_argument("input", type=Path, help="Producer Request JSON")
+    call_parser.add_argument("--connection", type=Path, required=True)
+    call_parser.add_argument("--output", "-o", type=Path, required=True)
     return parser
 
 
@@ -91,6 +98,16 @@ def main() -> int:
             request = json.loads(args.request.read_text(encoding="utf-8"))
             response = json.loads(args.response.read_text(encoding="utf-8"))
             validated = validate_producer_response(request, response)
+        except (OSError, json.JSONDecodeError, DawprojectError) as exc:
+            raise SystemExit(f"error: {exc}") from exc
+        args.output.write_text(
+            json.dumps(validated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        return 0
+    if args.command == "call":
+        try:
+            request = json.loads(args.input.read_text(encoding="utf-8"))
+            validated = call_producer(load_connection_config(str(args.connection)), request)
         except (OSError, json.JSONDecodeError, DawprojectError) as exc:
             raise SystemExit(f"error: {exc}") from exc
         args.output.write_text(
