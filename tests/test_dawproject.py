@@ -4,6 +4,7 @@ import unittest
 from zipfile import ZipFile
 
 from aips.dawproject import parse_dawproject
+from aips.decisions import prepare_ai_payload
 from aips.review import render_material_review
 
 
@@ -97,6 +98,24 @@ class DawprojectAdapterTest(unittest.TestCase):
         self.assertIn("参照", html)
         self.assertIn("無視", html)
         self.assertIn("artist-decisions.json", html)
+        self.assertIn('data-value="reference"', html)
+
+    def test_artist_decisions_define_ai_boundary(self) -> None:
+        with TemporaryDirectory() as directory:
+            package = Path(directory) / "song.dawproject"
+            with ZipFile(package, "w") as archive:
+                archive.writestr("project.xml", PROJECT_XML)
+                archive.writestr("audio/bass.wav", b"test")
+            context = parse_dawproject(package)
+        decisions = {"track_decisions": [
+            {"track_id": "midi", "usage": "use", "role": "drums"},
+            {"track_id": "audio", "usage": "ignore", "role": "bass"},
+        ]}
+        payload = prepare_ai_payload(context, decisions)
+
+        self.assertEqual(payload["artist_authority"]["editable_track_ids"], ["midi"])
+        self.assertEqual(len(payload["project"]["tracks"]), 1)
+        self.assertEqual(payload["excluded_from_ai"][0]["name"], "Bass")
 
 
 if __name__ == "__main__":
