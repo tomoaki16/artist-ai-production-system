@@ -40,6 +40,8 @@ class Clip:
     play_start_beats: float
     content_type: str
     asset_path: str | None = None
+    audio_offset_seconds: float | None = None
+    audio_duration_seconds: float | None = None
 
 
 @dataclass(frozen=True)
@@ -128,6 +130,26 @@ def _overlaps(time: float, duration: float, start: float, end: float) -> bool:
     return time < end and time + duration > start
 
 
+def _warped_seconds(warps: ET.Element | None, beats: float,
+                    seconds_per_beat: float | None) -> float:
+    """Map a clip content position in beats to source-audio seconds."""
+    if warps is not None:
+        points = sorted(
+            ((float(point.get("time", "0")), float(point.get("contentTime", "0")))
+             for point in warps.findall("./Warp")),
+            key=lambda point: point[0],
+        )
+        for (left_beat, left_second), (right_beat, right_second) in zip(points, points[1:]):
+            if left_beat <= beats <= right_beat and right_beat != left_beat:
+                fraction = (beats - left_beat) / (right_beat - left_beat)
+                return left_second + fraction * (right_second - left_second)
+        if points and beats <= points[0][0]:
+            return points[0][1]
+        if points and beats >= points[-1][0]:
+            return points[-1][1]
+    return beats * seconds_per_beat if seconds_per_beat is not None else 0.0
+
+
 def parse_dawproject(path: str | Path, *, start_bar: int | None = None,
                      bars: int | None = None, harmony_path: str | Path | None = None) -> dict[str, Any]:
     """Parse a DAWproject package and optionally select a bar range."""
@@ -152,6 +174,8 @@ def parse_dawproject(path: str | Path, *, start_bar: int | None = None,
     numerator = _int(signature.get("numerator")) if signature is not None else None
     denominator = _int(signature.get("denominator")) if signature is not None else None
     beats_per_bar = numerator * 4 / denominator if numerator and denominator else None
+    tempo_bpm = _float(tempo.get("value")) if tempo is not None else None
+    seconds_per_beat = 60.0 / tempo_bpm if tempo_bpm else None
     if (start_bar is None) != (bars is None):
         raise DawprojectError("start_bar and bars must be supplied together")
     if start_bar is not None and (start_bar < 1 or bars is None or bars < 1):
@@ -187,10 +211,24 @@ def parse_dawproject(path: str | Path, *, start_bar: int | None = None,
             clip_duration = _float(clip.get("duration"), 0.0) or 0.0
             play_start = _float(clip.get("playStart"), 0.0) or 0.0
             audio = clip.find(".//Audio")
+            warps = clip.find(".//Warps")
             asset_path = None
+            audio_offset_seconds = None
+            audio_duration_seconds = None
             if audio is not None:
                 file_element = audio.find("./File")
                 asset_path = file_element.get("path") if file_element is not None else None
+                audio_offset_seconds = _warped_seconds(warps, play_start, seconds_per_beat)
+                audio_end_seconds = _warped_seconds(
+                    warps, play_start + clip_duration, seconds_per_beat
+                )
+                audio_duration_seconds = max(0.0, audio_end_seconds - audio_offset_seconds)
+                source_duration = _float(audio.get("duration"))
+                if source_duration is not None:
+                    audio_offset_seconds = min(audio_offset_seconds, source_duration)
+                    audio_duration_seconds = min(
+                        audio_duration_seconds, max(0.0, source_duration - audio_offset_seconds)
+                    )
                 if selection_start is None or _overlaps(
                     clip_time, clip_duration, selection_start, selection_end
                 ):
@@ -202,7 +240,9 @@ def parse_dawproject(path: str | Path, *, start_bar: int | None = None,
             if selection_start is None or _overlaps(clip_time, clip_duration, selection_start, selection_end):
                 track.clips.append(Clip(name=clip.get("name"), time_beats=clip_time,
                                         duration_beats=clip_duration, play_start_beats=play_start,
-                                        content_type=content_type, asset_path=asset_path))
+                                        content_type=content_type, asset_path=asset_path,
+                                        audio_offset_seconds=audio_offset_seconds,
+                                        audio_duration_seconds=audio_duration_seconds))
             for note in clip.findall(".//Note"):
                 note_time = clip_time + float(note.get("time", "0")) - play_start
                 note_duration = float(note.get("duration", "0"))
@@ -226,7 +266,7 @@ def parse_dawproject(path: str | Path, *, start_bar: int | None = None,
         "source": asdict(Source(kind="dawproject", path=str(project_path))),
         "application": {"name": app.get("name") if app is not None else None,
                         "version": app.get("version") if app is not None else None},
-        "transport": {"tempo_bpm": _float(tempo.get("value")) if tempo is not None else None,
+        "transport": {"tempo_bpm": tempo_bpm,
                       "time_signature": {"numerator": numerator, "denominator": denominator},
                       "beats_per_bar": beats_per_bar},
         "selection": None if selection_start is None else {
