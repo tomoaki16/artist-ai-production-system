@@ -2,10 +2,15 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 from zipfile import ZipFile
+from io import BytesIO
+import math
+import struct
+import wave
 
 from aips.dawproject import parse_dawproject
 from aips.decisions import prepare_ai_payload
 from aips.review import render_ai_payload_preview, render_material_review
+from aips.audio import add_local_audio_analysis, analyze_pcm_wav
 
 
 PROJECT_XML = """<?xml version="1.0" encoding="UTF-8"?>
@@ -120,6 +125,20 @@ class DawprojectAdapterTest(unittest.TestCase):
         self.assertIn("AIへ渡す内容を確認", preview)
         self.assertIn("変更可能", preview)
         self.assertIn("AIへ送らないトラック：Bass", preview)
+
+    def test_analyzes_pcm_audio_locally(self) -> None:
+        buffer = BytesIO()
+        with wave.open(buffer, "wb") as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(8000)
+            samples = [int(12000 * math.sin(2 * math.pi * 110 * i / 8000)) for i in range(8000)]
+            wav.writeframes(b"".join(struct.pack("<h", sample) for sample in samples))
+        analysis = analyze_pcm_wav(buffer.getvalue(), pitch_mode="monophonic")
+
+        self.assertEqual(analysis["sample_rate"], 8000)
+        self.assertTrue(analysis["pitch_candidates"])
+        self.assertAlmostEqual(analysis["pitch_candidates"][0]["midi"], 45, delta=1)
 
 
 if __name__ == "__main__":
