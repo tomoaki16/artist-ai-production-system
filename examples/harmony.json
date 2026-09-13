@@ -1,0 +1,8 @@
+{
+  "events": [
+    {"time_beats": 0, "duration_beats": 4, "symbol": "E"},
+    {"time_beats": 4, "duration_beats": 4, "symbol": "G#m7"},
+    {"time_beats": 8, "duration_beats": 4, "symbol": "A"},
+    {"time_beats": 12, "duration_beats": 4, "symbol": "B7"}
+  ]
+}
