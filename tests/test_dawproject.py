@@ -188,6 +188,30 @@ class DawprojectAdapterTest(unittest.TestCase):
         self.assertIn("ルート", html)
         self.assertIn("コードの土台", html)
 
+    def test_combines_harmony_bass_guitar_and_artist_decisions(self) -> None:
+        payload = {"project": {
+            "transport": {"beats_per_bar": 4},
+            "harmony": {"events": [{"time_beats": 0, "duration_beats": 4, "symbol": "E"}]},
+            "tracks": [
+                {"role": "bass", "audio_analysis": [{"features": {"note_events": [{
+                    "song_time_beats": 0.02, "duration_seconds": 2.0, "midi": 40,
+                    "note": "E2", "harmonic_role": "root", "confidence": 0.83,
+                }]}}]},
+                {"role": "guitar", "audio_analysis": [{"features": {"note_events": [{
+                    "song_time_beats": 0.03, "duration_seconds": 2.0, "midi": 52,
+                    "note": "E3", "confidence": 0.7,
+                }]}}]},
+            ],
+        }}
+        html = render_analysis_review(payload)
+        self.assertIn("コード", html)
+        self.assertIn("ベース", html)
+        self.assertIn("ギター", html)
+        self.assertIn("E3", html)
+        self.assertIn("固定", html)
+        self.assertIn("提案可", html)
+        self.assertIn("artist-bar-decisions.json", html)
+
 
 if __name__ == "__main__":
     unittest.main()
