@@ -15,6 +15,7 @@ from .review import (render_ai_payload_preview, render_analysis_review,
 from .providers import validate_producer_response
 from .connections import call_producer, load_connection_config
 from .midi import export_proposal_midi
+from .workflow import produce_assets
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -85,6 +86,13 @@ def build_parser() -> argparse.ArgumentParser:
     compare_parser.add_argument("input", type=Path)
     compare_parser.add_argument("--output", "-o", type=Path, required=True)
     compare_parser.add_argument("--midi-directory", default="midi-takes")
+    produce_parser = subparsers.add_parser(
+        "produce", help="call the user's AI and build validated MIDI comparison assets"
+    )
+    produce_parser.add_argument("input", type=Path, help="Producer Request JSON")
+    produce_parser.add_argument("--connection", type=Path, required=True)
+    produce_parser.add_argument("--output-dir", type=Path, required=True)
+    produce_parser.add_argument("--tempo", type=float, default=90.0)
     return parser
 
 
@@ -143,6 +151,19 @@ def main() -> int:
         args.output.write_text(
             render_proposal_comparison(validated, args.midi_directory), encoding="utf-8"
         )
+        return 0
+    if args.command == "produce":
+        try:
+            request = json.loads(args.input.read_text(encoding="utf-8"))
+            assets = produce_assets(
+                load_connection_config(str(args.connection)), request,
+                args.output_dir, tempo_bpm=args.tempo,
+            )
+        except (OSError, json.JSONDecodeError, DawprojectError) as exc:
+            raise SystemExit(f"error: {exc}") from exc
+        print(f"comparison: {assets['comparison']}")
+        for midi_path in assets["midi"]:
+            print(f"midi: {midi_path}")
         return 0
     try:
         context = parse_dawproject(
