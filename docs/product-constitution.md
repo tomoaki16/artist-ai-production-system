@@ -1,7 +1,7 @@
 # 製品憲法・意思決定ログ
 
 - Status: Source of Truth
-- Version: 0.1
+- Version: 0.2
 - Updated: 2026-09-13
 
 この文書は会話の要約ではなく、製品開発で判断がぶれないための基準である。重要な決定を変更する場合は、この文書も更新する。
@@ -26,6 +26,7 @@
 - AIに作品を決めてほしいのではなく、自分で決めたい
 - 音楽理論、編曲、楽器、ミックスなどの知識は発展途上でもよい
 - DAW操作や打ち込みに時間がかかる
+- 生演奏と打ち込みを混在させる場合がある
 - 自分にない技術的な引き出しを得たい
 - 完成音源ではなく、DAW上で編集可能な素材を求める
 
@@ -49,6 +50,7 @@ Artistが30分かけて考え、試し、打ち込んでいた作業を、数分
 - 複数案の設計
 - 各楽器のフレーズ作成
 - MIDIへの具体化
+- 録音オーディオの音高・リズム・音域・密度解析
 - パート間の衝突検査
 - 修正作業と反復
 
@@ -94,23 +96,23 @@ Artistとの窓口。現状と目的を整理し、必要な専門能力を選�
 
 Drums、Bass、Guitar、Keys / Synthなどを、実際に演奏可能で各楽器らしいフレーズへ落とす。
 
-### AI MIDI Engineer
+### AI MIDI / Audio Engineer
 
-Pitch、Timing、Duration、Velocity、Articulation、Voicingを具体化し、MIDI生成、制約検査、パート間の衝突検査を行う。
+Pitch、Timing、Duration、Velocity、Articulation、Voicingを具体化する。MIDI生成、録音オーディオ解析、制約検査、パート間の衝突検査を行う。
 
 役職を画面に大量表示するのではない。Artistは原則としてAI Producerと対話し、必要な専門能力は裏側で編成される。
 
 ## 6. Core Workflow
 
-1. ArtistがDAW上で4〜8小節程度を選択する
-2. AIが選択範囲と周辺の楽曲コンテキストを分析する
+1. ArtistがDAW上で4〜8小節程度を選択し、プロジェクト情報または素材を書き出す
+2. AIがコード進行、MIDI、録音オーディオ、周辺コンテキストを分析する
 3. Artistが「どう聴かせたいか」と制約を伝える
 4. AI Producerが実現可能な音楽的手段を提示する
 5. Artistが使う手段を選ぶ
 6. AIが選択された方針で複数の打ち込み案を生成する
 7. Artistが原案と比較試聴する
 8. 全体またはパート単位で採用・組み合わせ・再生成する
-9. 編集可能なMIDIとしてDAWへ戻す
+9. 編集可能なMIDI等としてDAWへ戻す
 
 AIは問題を分析し、手段を提案できる。ただし「何が良いか」「どの方向へ作品を進めるか」を最終決定しない。
 
@@ -161,23 +163,50 @@ Artistが方法まで指定している場合、その制約内で演奏案、�
 
 > 判断を減らすのではなく、判断の意味を分かりやすくする。
 
-## 9. AI Connection Policy
+## 9. Portability Policy
+
+製品のコアは特定DAW、特定OS、特定AI、特定楽器編成へ依存させない。
+
+- Studio Oneは最初の検証環境であり、製品境界ではない
+- DAW固有形式はInput / Output Adapterで扱う
+- DAWproject対応DAWはプロジェクト単位で連携する
+- 非対応DAWはStandard MIDI File、コード情報、Audio stemsで連携する
+- コア内部では全入力を共通Music Contextへ正規化する
+- 録音主体、打ち込み主体、混在プロジェクトを扱う
+- 情報が不確実な場合は確信度を保持し、必要な箇所だけArtistへ確認する
+
+## 10. AI Connection Policy
 
 AIモデルは製品へ固定内蔵しない。ユーザーが利用するAIを接続できるProvider Adapter方式を採用する。
 
 製品固有の価値はモデルではなく、DAWデータの音楽的解析、共通Music Context、Artistの意図と制約の構造化、AI出力の検証、MIDIへの変換、DAWとの往復に置く。
 
-## 10. Technical Direction
+## 11. Technical Direction
 
-V0.1はVST3単体から始めず、DAWprojectおよびStandard MIDI Fileを受け渡すデスクトップ型プロトタイプから開始する。
+V0.1はVST3単体から始めず、DAWproject、Standard MIDI File、Audio stems、コード情報を受け渡すクロスプラットフォームのデスクトップ型プロトタイプから開始する。
 
-対象は4〜8小節程度のDrums / Bass / Guitar / Keysを含む既存アンサンブル。
+入力をDAW Adapterで共通Music Contextへ変換し、AI Provider Adapter、音楽分析・生成コア、Output Adapterを分離する。
+
+対象は4〜8小節程度のDrums / Bass / Guitar / Keysを含む既存アンサンブル。MIDIと録音オーディオの混在を前提とする。
 
 出力は、方向の異なる3案、短い理由、パート別MIDI、原案との差分、制約検査結果。全体採用と部分採用を可能にする。
 
-V0.1には、一曲丸ごとの自動生成、歌詞からの完成曲生成、AIによる感性の決定、本格的な自動Mix / Mastering、全DAW同時対応を含めない。
+V0.1には、一曲丸ごとの自動生成、歌詞からの完成曲生成、AIによる感性の決定、本格的な自動Mix / Mastering、全DAWへの深いネイティブ連携を含めない。
 
-## 11. Product Decision Test
+## 12. Distribution Policy
+
+将来の一般配布を前提にする。
+
+- WindowsとmacOSを主要配布対象とし、Linuxを設計上排除しない
+- ユーザーのAI認証情報はローカルで安全に保持する
+- 秘密情報や未発表音源を、明示なく第三者へ送らない
+- AI送信前に対象データと送信範囲を確認できる
+- コア機能とDAW Adapterを分離し、対応DAWを追加可能にする
+- ファイル形式、AI Provider、解析器を差し替え可能にする
+- VST3等のプラグインは将来のDAW内フロントエンド候補とする
+- オフライン解析とローカルAI接続を将来的に許容する
+
+## 13. Product Decision Test
 
 新機能を検討するとき、以下を確認する。
 
@@ -188,10 +217,12 @@ V0.1には、一曲丸ごとの自動生成、歌詞からの完成曲生成、A
 5. 出力をDAW上で編集できるか
 6. Artistが変更範囲と採否を管理できるか
 7. 「誰でもプロっぽい曲」へ近づいていないか
+8. 特定DAW、OS、AIへ不必要に依存していないか
+9. 配布時のプライバシーと認証情報を安全に扱えるか
 
 1、2、4、5、6のいずれかを満たさない機能は、原則として採用しない。
 
-## 12. Confirmed Decisions
+## 14. Confirmed Decisions
 
 - 人間はArtist、AIはProducer & Engineer
 - Artistの感性をAIに任せない
@@ -201,12 +232,16 @@ V0.1には、一曲丸ごとの自動生成、歌詞からの完成曲生成、A
 - 自動作曲ではなく作曲・編曲の効率化が目的
 - 既存曲の局所的な改善から始める
 - 複数パートをアンサンブルとして扱う
+- MIDIと録音オーディオの混在に対応する
+- コードトラック／コード情報を和声の基準として利用できる
 - 編集可能なMIDIを中心出力とする
 - ユーザー自身のAIと接続する
 - UIは簡単にするがArtistの判断工程は削らない
 - 画面方向は、AI分析 → Artistの意図 → 手段選択 → 複数案 → 部分採用
+- Studio Oneで検証するが、コアはDAW非依存にする
+- 将来の一般配布を前提に設計する
 
-## 13. Open Questions
+## 15. Open Questions
 
 - 製品名
 - 各Working Modeの最終名称
@@ -215,17 +250,21 @@ V0.1には、一曲丸ごとの自動生成、歌詞からの完成曲生成、A
 - 原案との差分表現
 - 試聴方法
 - DAWprojectのStudio One実データ検証
+- 非DAWproject DAWからの最小入力手順
+- Audio解析の精度と対応奏法
 - AI Providerごとの構造化出力精度
 - 楽器ごとの演奏可能性モデル
 - Artist Profileの記憶範囲
 - 採用／却下履歴の利用方法
 - V0.1で扱うジャンルと楽器編成
+- デスクトップ技術スタックと署名・配布方法
 
-## 14. Next Step
+## 16. Next Step
 
 1. Studio One 7から実際の4〜8小節をDAWproject形式で書き出す
-2. ファイル内に保持されるトラック、ノート、Velocity、テンポ等を確認する
-3. 共通Music Contextの最小スキーマを定義する
-4. Artist Intent / Constraintsのスキーマを定義する
-5. AI Proposalの構造化出力を定義する
-6. 入力ファイル → 解析JSON → 仮Proposal → MIDI出力の縦切りプロトタイプを作る
+2. コード、MIDI、録音オーディオ、テンポ、トラック構造の保持状況を確認する
+3. DAW非依存の共通Music Contextスキーマを定義する
+4. Input Adapterの契約を定義する
+5. Artist Intent / Constraintsのスキーマを定義する
+6. AI Proposalの構造化出力を定義する
+7. 入力 → 共通Music Context → 仮Proposal → MIDI出力の縦切りプロトタイプを作る
