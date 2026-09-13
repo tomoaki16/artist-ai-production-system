@@ -11,6 +11,8 @@ from aips.dawproject import parse_dawproject
 from aips.decisions import prepare_ai_payload, prepare_producer_request
 from aips.review import render_ai_payload_preview, render_analysis_review, render_material_review
 from aips.audio import _chord_tone_role, add_local_audio_analysis, analyze_pcm_wav
+from aips.providers import create_provider_envelope, validate_producer_response
+from aips.dawproject import DawprojectError
 
 
 PROJECT_XML = """<?xml version="1.0" encoding="UTF-8"?>
@@ -235,6 +237,35 @@ class DawprojectAdapterTest(unittest.TestCase):
         self.assertEqual(boundary["editable"][0]["part"], "guitar")
         self.assertEqual(request["artist"]["intent"], "サビ前の期待感を強めたい")
         self.assertTrue(request["artist"]["owns_taste_and_final_decision"])
+
+    def test_provider_envelope_and_response_boundary(self) -> None:
+        request = {"authority_boundary": {
+            "protected": [{"bar": 13, "part": "bass", "value": "F#2"}],
+            "editable": [{"bar": 13, "part": "guitar", "value": "F#2 · C#3 · A3"}],
+        }, "requested_output": {"proposal_count": 3}}
+        envelope = create_provider_envelope(request)
+        self.assertIn("Never modify a protected item.", envelope["non_negotiable_rules"])
+        response = {"proposals": [{
+            "id": "a", "title": "内声を上げる", "rationale": "期待感を作る",
+            "changes": [{"bar": 13, "part": "guitar",
+                         "from_value": "F#2 · C#3 · A3",
+                         "to_value": "F#2 · C#3 · A#3", "reason": "上声を半音上げる"}],
+        }]}
+        validated = validate_producer_response(request, response)
+        self.assertEqual(validated["status"], "validated")
+
+    def test_rejects_ai_change_to_protected_part(self) -> None:
+        request = {"authority_boundary": {
+            "protected": [{"bar": 13, "part": "bass", "value": "F#2"}],
+            "editable": [{"bar": 13, "part": "guitar", "value": "F#2 C#3 A3"}],
+        }, "requested_output": {"proposal_count": 3}}
+        response = {"proposals": [{
+            "id": "bad", "title": "Bass変更", "rationale": "上昇感",
+            "changes": [{"bar": 13, "part": "bass", "from_value": "F#2",
+                         "to_value": "G#2", "reason": "上げる"}],
+        }]}
+        with self.assertRaises(DawprojectError):
+            validate_producer_response(request, response)
 
 
 if __name__ == "__main__":
