@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from .dawproject import DawprojectError, parse_dawproject
+from .decisions import load_decisions, prepare_ai_payload
 from .review import render_material_review
 
 
@@ -29,6 +30,15 @@ def build_parser() -> argparse.ArgumentParser:
     review_parser.add_argument("--start-bar", type=int)
     review_parser.add_argument("--bars", type=int)
     review_parser.add_argument("--harmony", type=Path)
+    prepare_parser = subparsers.add_parser(
+        "prepare", help="apply Artist decisions and create the AI payload JSON"
+    )
+    prepare_parser.add_argument("input", type=Path)
+    prepare_parser.add_argument("--decisions", type=Path, required=True)
+    prepare_parser.add_argument("--output", "-o", type=Path, required=True)
+    prepare_parser.add_argument("--start-bar", type=int)
+    prepare_parser.add_argument("--bars", type=int)
+    prepare_parser.add_argument("--harmony", type=Path)
     return parser
 
 
@@ -46,6 +56,13 @@ def main() -> int:
 
     if args.command == "review":
         args.output.write_text(render_material_review(context), encoding="utf-8")
+        return 0
+
+    if args.command == "prepare":
+        payload = prepare_ai_payload(context, load_decisions(args.decisions))
+        args.output.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
         return 0
 
     rendered = json.dumps(context, ensure_ascii=False, indent=2)
