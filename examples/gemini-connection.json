@@ -1,0 +1,5 @@
+{
+  "provider": "gemini",
+  "model": "YOUR_MODEL_ID",
+  "api_key_env": "GEMINI_API_KEY"
+}
