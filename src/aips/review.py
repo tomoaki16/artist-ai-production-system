@@ -32,9 +32,10 @@ def render_material_review(context: dict[str, Any]) -> str:
         details = f"{source_type}・{track.get('clip_count', 0)}クリップ"
         if track.get("notes"):
             details += f"・{len(track['notes'])}ノート"
+        usage_options = (("use", "使う"), ("reference", "参照"), ("ignore", "無視"))
         buttons = "".join(
-            f'<button type="button" data-value="{value}" class="choice{(" active" if value == default_status else "")}">{value}</button>'
-            for value in ("使う", "参照", "無視")
+            f'<button type="button" data-value="{value}" class="choice{(" active" if label == default_status else "")}">{label}</button>'
+            for value, label in usage_options
         )
         role_options = "".join(
             f'<option value="{value}"{(" selected" if value == role else "")}>{label}</option>'
@@ -80,7 +81,7 @@ select{{font:inherit;padding:9px 30px 9px 10px;border:1px solid var(--line);bord
 </main><footer><div class="footer-inner"><span id="summary"></span><button id="save">この内容で決定</button></div></footer>
 <script>
 const base={payload};
-function updateSummary(){{const values=[...document.querySelectorAll('.choice.active')].map(x=>x.dataset.value);document.querySelector('#summary').textContent=`使う ${{values.filter(x=>x==='使う').length}}・参照 ${{values.filter(x=>x==='参照').length}}・無視 ${{values.filter(x=>x==='無視').length}}`;}}
+function updateSummary(){{const values=[...document.querySelectorAll('.choice.active')].map(x=>x.dataset.value);document.querySelector('#summary').textContent=`使う ${{values.filter(x=>x==='use').length}}・参照 ${{values.filter(x=>x==='reference').length}}・無視 ${{values.filter(x=>x==='ignore').length}}`;}}
 document.querySelectorAll('.choice').forEach(button=>button.onclick=()=>{{button.parentElement.querySelectorAll('.choice').forEach(x=>x.classList.remove('active'));button.classList.add('active');updateSummary();}});
 document.querySelector('#save').onclick=()=>{{base.track_decisions=[...document.querySelectorAll('.track')].map(row=>({{track_id:row.dataset.id,usage:row.querySelector('.choice.active').dataset.value,role:row.querySelector('select').value}}));const blob=new Blob([JSON.stringify(base,null,2)],{{type:'application/json'}});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='artist-decisions.json';a.click();URL.revokeObjectURL(a.href);}};
 updateSummary();
