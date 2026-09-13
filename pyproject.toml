@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "artist-ai-production-system"
+version = "0.1.0"
+description = "Artist-first, DAW-agnostic AI music production system"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+aips = "aips.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
