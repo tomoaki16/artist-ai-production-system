@@ -15,6 +15,7 @@ from aips.review import (render_ai_payload_preview, render_analysis_review,
 from aips.audio import _chord_tone_role, add_local_audio_analysis, analyze_pcm_wav
 from aips.providers import create_provider_envelope, validate_producer_response
 from aips.connections import ConnectionConfig, build_http_request, extract_provider_response
+from aips.workflow import produce_assets
 from aips.midi import export_proposal_midi
 from aips.dawproject import DawprojectError
 
@@ -321,6 +322,30 @@ class DawprojectAdapterTest(unittest.TestCase):
         self.assertIn("上昇ボイシング", html)
         self.assertIn("midi-takes/idea-a.mid", html)
         self.assertIn("この案を選ぶ", html)
+
+    def test_produce_workflow_builds_comparison_and_midi(self) -> None:
+        validated = {"schema_version": "0.1", "status": "validated", "proposals": [{
+            "id": "idea-a", "title": "内声上行", "rationale": "方向感を作る",
+            "changes": [],
+            "midi_events": [{"bar": 13, "part": "guitar", "beat": 0,
+                             "duration_beats": 2, "pitch": 57, "velocity": 80}],
+        }]}
+
+        def fake_caller(config, request):
+            self.assertEqual(config.provider, "anthropic")
+            self.assertEqual(request["artist"]["intent"], "期待感を強める")
+            return validated
+
+        with TemporaryDirectory() as directory:
+            assets = produce_assets(
+                ConnectionConfig("anthropic", "model", "TEST_KEY"),
+                {"artist": {"intent": "期待感を強める"}}, directory,
+                caller=fake_caller,
+            )
+            self.assertTrue(assets["comparison"].exists())
+            self.assertTrue(assets["validated_response"].exists())
+            self.assertEqual(assets["midi"][0].read_bytes()[:4], b"MThd")
+            self.assertIn("内声上行", assets["comparison"].read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
