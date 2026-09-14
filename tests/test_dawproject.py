@@ -6,7 +6,9 @@ from io import BytesIO
 import math
 import json
 import struct
+import threading
 import wave
+from urllib.request import Request, urlopen
 
 from aips.dawproject import parse_dawproject
 from aips.decisions import prepare_ai_payload, prepare_producer_request
@@ -17,7 +19,7 @@ from aips.providers import create_provider_envelope, validate_producer_response
 from aips.connections import ConnectionConfig, build_http_request, extract_provider_response
 from aips.workflow import produce_assets
 from aips.midi import export_proposal_midi
-from aips.local_ui import render_producer_ui
+from aips.local_ui import build_producer_ui_server, render_producer_ui
 from aips.dawproject import DawprojectError
 
 
@@ -355,6 +357,42 @@ class DawprojectAdapterTest(unittest.TestCase):
         self.assertIn("3案を比較する", html)
         self.assertIn("期待感を強める", html)
         self.assertNotIn("api_key", html.lower())
+
+    def test_local_ui_runs_producer_workflow_over_http(self) -> None:
+        validated = {"schema_version": "0.1", "status": "validated", "proposals": [{
+            "id": "idea-a", "title": "内声上行", "rationale": "方向感を作る",
+            "changes": [], "midi_events": [{"bar": 13, "part": "guitar",
+                "beat": 0, "duration_beats": 2, "pitch": 57, "velocity": 80}],
+        }]}
+
+        def fake_caller(config, request):
+            self.assertEqual(config.provider, "anthropic")
+            self.assertEqual(request["artist"]["intent"], "期待感を強める")
+            return validated
+
+        with TemporaryDirectory() as directory:
+            server = build_producer_ui_server(
+                ConnectionConfig("anthropic", "model", "TEST_KEY"),
+                {"artist": {"intent": "期待感を強める"}}, directory,
+                port=0, caller=fake_caller,
+            )
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base = f"http://127.0.0.1:{server.server_port}"
+            try:
+                with urlopen(base, timeout=3) as response:
+                    self.assertIn("AIに3案を依頼", response.read().decode("utf-8"))
+                with urlopen(Request(base + "/api/produce", method="POST"), timeout=3) as response:
+                    result = json.loads(response.read())
+                self.assertEqual(result["proposal_count"], 1)
+                with urlopen(base + "/output/index.html", timeout=3) as response:
+                    self.assertIn("内声上行", response.read().decode("utf-8"))
+                with urlopen(base + result["midi"][0]["url"], timeout=3) as response:
+                    self.assertEqual(response.read(4), b"MThd")
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=3)
 
 
 if __name__ == "__main__":

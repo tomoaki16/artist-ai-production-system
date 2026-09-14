@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
@@ -87,12 +86,25 @@ class ProducerUIHandler(BaseHTTPRequestHandler):
         pass
 
 
-def serve_producer_ui(config: ConnectionConfig, producer_request: dict[str, Any],
-                      output_dir: str | Path, *, port: int = 8765) -> None:
+def build_producer_ui_server(
+    config: ConnectionConfig,
+    producer_request: dict[str, Any],
+    output_dir: str | Path,
+    *,
+    port: int = 8765,
+    caller: Callable[[ConnectionConfig, dict[str, Any]], dict[str, Any]] | None = None,
+) -> ThreadingHTTPServer:
+    """Build a loopback-only server; caller injection keeps HTTP tests offline."""
     handler = type("ConfiguredProducerUI", (ProducerUIHandler,), {
         "config": config, "producer_request": producer_request,
         "output_dir": Path(output_dir),
+        "caller": staticmethod(caller) if caller else None,
     })
-    server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+    return ThreadingHTTPServer(("127.0.0.1", port), handler)
+
+
+def serve_producer_ui(config: ConnectionConfig, producer_request: dict[str, Any],
+                      output_dir: str | Path, *, port: int = 8765) -> None:
+    server = build_producer_ui_server(config, producer_request, output_dir, port=port)
     print(f"AI Producer UI: http://127.0.0.1:{port}")
     server.serve_forever()
