@@ -114,3 +114,26 @@ def call_producer(config: ConnectionConfig, producer_request: dict[str, Any], *,
     return validate_producer_response(
         producer_request, extract_provider_response(config.provider, raw)
     )
+
+
+def check_connection(config: ConnectionConfig, *, opener: Callable[..., Any] = urlopen,
+                     timeout: float = 20.0,
+                     environment: dict[str, str] | None = None) -> dict[str, str]:
+    """Verify credentials and model access without sending any song data."""
+    probe = {
+        "purpose": "connection_check",
+        "instruction": "Return exactly this JSON object.",
+        "response_contract": {"ok": True},
+    }
+    request = build_http_request(config, probe, environment)
+    try:
+        with opener(request, timeout=timeout) as response:
+            raw = json.loads(response.read().decode("utf-8"))
+    except DawprojectError:
+        raise
+    except Exception as exc:
+        raise DawprojectError(f"AI connection check failed: {exc}") from exc
+    result = extract_provider_response(config.provider, raw)
+    if result.get("ok") is not True:
+        raise DawprojectError("AI connection check returned an unexpected response")
+    return {"status": "connected", "provider": config.provider, "model": config.model}

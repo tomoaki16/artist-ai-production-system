@@ -13,7 +13,7 @@ from .audio import add_local_audio_analysis, load_audio_settings
 from .review import (render_ai_payload_preview, render_analysis_review,
                      render_material_review, render_proposal_comparison)
 from .providers import validate_producer_response
-from .connections import call_producer, load_connection_config
+from .connections import call_producer, check_connection, load_connection_config
 from .midi import export_proposal_midi
 from .workflow import produce_assets
 from .local_ui import serve_producer_ui
@@ -75,6 +75,10 @@ def build_parser() -> argparse.ArgumentParser:
     call_parser.add_argument("input", type=Path, help="Producer Request JSON")
     call_parser.add_argument("--connection", type=Path, required=True)
     call_parser.add_argument("--output", "-o", type=Path, required=True)
+    check_parser = subparsers.add_parser(
+        "check-connection", help="verify API credentials and model access without song data"
+    )
+    check_parser.add_argument("--connection", type=Path, required=True)
     midi_parser = subparsers.add_parser(
         "export-midi", help="export validated proposals as Standard MIDI Files"
     )
@@ -143,6 +147,13 @@ def main() -> int:
         args.output.write_text(
             json.dumps(validated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
+        return 0
+    if args.command == "check-connection":
+        try:
+            result = check_connection(load_connection_config(str(args.connection)))
+        except (OSError, json.JSONDecodeError, DawprojectError) as exc:
+            raise SystemExit(f"error: {exc}") from exc
+        print(f"connected: {result['provider']} / {result['model']}")
         return 0
     if args.command == "export-midi":
         try:

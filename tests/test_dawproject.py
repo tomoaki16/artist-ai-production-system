@@ -16,7 +16,8 @@ from aips.review import (render_ai_payload_preview, render_analysis_review,
                          render_material_review, render_proposal_comparison)
 from aips.audio import _chord_tone_role, add_local_audio_analysis, analyze_pcm_wav
 from aips.providers import create_provider_envelope, validate_producer_response
-from aips.connections import ConnectionConfig, build_http_request, extract_provider_response
+from aips.connections import (ConnectionConfig, build_http_request, check_connection,
+                              extract_provider_response)
 from aips.workflow import produce_assets
 from aips.midi import export_proposal_midi
 from aips.local_ui import build_producer_ui_server, render_producer_ui
@@ -297,6 +298,31 @@ class DawprojectAdapterTest(unittest.TestCase):
         gemini = {"candidates": [{"content": {"parts": [{"text": json.dumps(proposal)}]}}]}
         self.assertEqual(extract_provider_response("anthropic", anthropic), proposal)
         self.assertEqual(extract_provider_response("gemini", gemini), proposal)
+
+    def test_checks_gemini_connection_without_song_data(self) -> None:
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                pass
+
+            def read(self):
+                return json.dumps({"candidates": [{"content": {"parts": [
+                    {"text": '{"ok":true}'}
+                ]}}]}).encode()
+
+        def fake_opener(request, timeout):
+            self.assertNotIn(b"music_context", request.data)
+            self.assertEqual(timeout, 20.0)
+            return Response()
+
+        result = check_connection(
+            ConnectionConfig("gemini", "gemini-2.5-flash", "GEMINI_API_KEY"),
+            opener=fake_opener, environment={"GEMINI_API_KEY": "test-secret"},
+        )
+        self.assertEqual(result["status"], "connected")
+        self.assertEqual(result["model"], "gemini-2.5-flash")
 
     def test_exports_validated_proposal_as_standard_midi(self) -> None:
         validated = {"proposals": [{
