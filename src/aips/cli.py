@@ -16,6 +16,7 @@ from .providers import validate_producer_response
 from .connections import call_producer, load_connection_config
 from .midi import export_proposal_midi
 from .workflow import produce_assets
+from .local_ui import serve_producer_ui
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -93,6 +94,13 @@ def build_parser() -> argparse.ArgumentParser:
     produce_parser.add_argument("--connection", type=Path, required=True)
     produce_parser.add_argument("--output-dir", type=Path, required=True)
     produce_parser.add_argument("--tempo", type=float, default=90.0)
+    serve_parser = subparsers.add_parser(
+        "serve", help="open the local Artist UI for requesting and comparing AI proposals"
+    )
+    serve_parser.add_argument("input", type=Path, help="Producer Request JSON")
+    serve_parser.add_argument("--connection", type=Path, required=True)
+    serve_parser.add_argument("--output-dir", type=Path, required=True)
+    serve_parser.add_argument("--port", type=int, default=8765)
     return parser
 
 
@@ -164,6 +172,14 @@ def main() -> int:
         print(f"comparison: {assets['comparison']}")
         for midi_path in assets["midi"]:
             print(f"midi: {midi_path}")
+        return 0
+    if args.command == "serve":
+        try:
+            request = json.loads(args.input.read_text(encoding="utf-8"))
+            config = load_connection_config(str(args.connection))
+        except (OSError, json.JSONDecodeError, DawprojectError) as exc:
+            raise SystemExit(f"error: {exc}") from exc
+        serve_producer_ui(config, request, args.output_dir, port=args.port)
         return 0
     try:
         context = parse_dawproject(

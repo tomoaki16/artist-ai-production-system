@@ -17,6 +17,7 @@ from aips.providers import create_provider_envelope, validate_producer_response
 from aips.connections import ConnectionConfig, build_http_request, extract_provider_response
 from aips.workflow import produce_assets
 from aips.midi import export_proposal_midi
+from aips.local_ui import render_producer_ui
 from aips.dawproject import DawprojectError
 
 
@@ -346,6 +347,14 @@ class DawprojectAdapterTest(unittest.TestCase):
             self.assertTrue(assets["validated_response"].exists())
             self.assertEqual(assets["midi"][0].read_bytes()[:4], b"MThd")
             self.assertIn("内声上行", assets["comparison"].read_text(encoding="utf-8"))
+
+    def test_renders_secret_free_local_producer_ui(self) -> None:
+        html = render_producer_ui("anthropic", "artist-model", "期待感を強める")
+        self.assertIn("AIに3案を依頼", html)
+        self.assertIn("/api/produce", html)
+        self.assertIn("3案を比較する", html)
+        self.assertIn("期待感を強める", html)
+        self.assertNotIn("api_key", html.lower())
 
 
 if __name__ == "__main__":

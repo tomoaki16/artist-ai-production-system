@@ -394,9 +394,35 @@ V0.1に含めないもの：
 
 ## 15. Next Step
 
-1. Studio One 7から実際の4〜8小節をDAWproject形式で書き出す
-2. ファイル内に保持されるトラック、ノート、Velocity、テンポ等を確認する
-3. 共通Music Contextの最小スキーマを定義する
-4. Artist Intent / Constraintsのスキーマを定義する
-5. AI Proposalの構造化出力を定義する
-6. 入力ファイル→解析JSON→仮Proposal→MIDI出力の縦切りプロトタイプを作る
+### 現在の到達点
+
+song01の13〜16小節を対象に、以下の縦切りを実装済み。
+
+1. DAWprojectの読み込みとローカル音楽解析
+2. Artistによる解析値の修正・確定
+3. コード／ベース／ギターごとの固定・提案可設定
+4. Artist Intent / Constraintsから共通Producer Requestを生成
+5. ユーザー所有のClaudeまたはGeminiへ接続
+6. 固定範囲に違反するAI提案を拒否
+7. 検証済み3案をStandard MIDIと比較画面へ出力
+8. ローカルUIのボタンから5〜7を一括実行
+
+ローカルUIは次で起動する。
+
+```bash
+aips serve song01-vertical-slice/producer-request.json \
+  --connection examples/anthropic-connection.json \
+  --output-dir producer-output
+```
+
+ブラウザで `http://127.0.0.1:8765` を開き、「AIに3案を依頼」を実行する。
+APIキーはUIや設定JSONへ保存せず、接続設定が指定する環境変数から実行時のみ取得する。
+
+### 次の価値検証
+
+1. 実際のユーザーAPIキーでsong01の3案を生成する
+2. Studio Oneへ各MIDIを配置して聴き比べる
+3. 「制作時間を短縮したか」「自分にない引き出しが得られたか」をArtistが評価する
+4. 結果をもとに、提案形式・差分表示・MIDIの演奏可能性を修正する
+
+VST3本体の作り込み、対応AIの追加、全曲解析への拡大は、この価値検証の後に判断する。
